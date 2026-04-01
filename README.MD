@@ -1,8 +1,30 @@
 # FTP2P
 
 FTP2P is a dual-pane FTP client for MS-DOS built with Open Watcom 1.9.
+![FTP2P running under DOS](img/ftp2p.png)
 
 It is developed as a separate utility on top of an mTCP-based source tree. The repository includes the source code required to build FTP2P, while release binaries are provided only for FTP2P itself.
+
+## Background
+
+Working with real DOS machines on modern networks is often inconvenient.  
+While TCP/IP stacks such as mTCP provide the necessary networking
+functionality, there is still a noticeable lack of practical FTP clients
+for DOS.
+
+In practice this makes file exchange between DOS systems and modern
+computers unnecessarily complicated. Users often end up relying on
+command-line tools or indirect methods of transferring files.
+
+At the same time, the DOS ecosystem already has excellent two-panel file
+managers, and new ones continue to appear. However, a convenient
+two-panel FTP client similar to classic file managers has been largely
+missing.
+
+FTP2P was created to address this gap. The goal of the project is to
+provide a simple and convenient dual-pane FTP client for DOS systems,
+making it easier to browse local and remote directories and transfer
+files between them.
 
 ## Repository layout
 
