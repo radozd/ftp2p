@@ -58,14 +58,14 @@ static void CopyDataTrunc(char *dst, size_t dstSize, const char *src, size_t src
 	if( src == NULL )
 		return;
 
-	size_t copyLen = srcLen;
-	if( copyLen > dstSize - 1 )
-		copyLen = dstSize - 1;
+	size_t copy_len = srcLen;
+	if( copy_len > dstSize - 1 )
+		copy_len = dstSize - 1;
 
-	if( copyLen > 0 )
-		memcpy(dst, src, copyLen);
+	if( copy_len > 0 )
+		memcpy(dst, src, copy_len);
 	
-	dst[copyLen] = '\0';
+	dst[copy_len] = '\0';
 }
 
 static void CopyTrunc(char *dst, size_t dstSize, const char *src)
@@ -148,32 +148,32 @@ void CropRight(char *dst, size_t len, const char *src)
 		return;
 	}
 
-	size_t extLen = strlen(dot);
-	if( extLen > 8 )
-		extLen = 8;
+	size_t ext_len = strlen(dot);
+	if( ext_len > 8 )
+		ext_len = 8;
 
 	size_t baseLen = dot - src;
-	size_t maxBaseLen = cap - extLen;
+	size_t maxBaseLen = cap - ext_len;
 
 	if( baseLen <= maxBaseLen )
 	{
 		CopyDataTrunc(dst, len, src, baseLen);
-		CopyDataTrunc(dst + baseLen, len - baseLen, dot, extLen);
+		CopyDataTrunc(dst + baseLen, len - baseLen, dot, ext_len);
 		return;
 	}
 
-	if( cap <= extLen + 3 )
+	if( cap <= ext_len + 3 )
 	{
 		CopyDataTrunc(dst, len, src, cap);
 		return;
 	}
 
-	size_t keepLen = cap - extLen - 3;
-	CopyDataTrunc(dst, len, src, keepLen);
-	dst[keepLen] = '.';
-	dst[keepLen + 1] = '.';
-	dst[keepLen + 2] = '.';
-	CopyDataTrunc(dst + keepLen + 3, len - keepLen - 3, dot, extLen);
+	size_t keep_len = cap - ext_len - 3;
+	CopyDataTrunc(dst, len, src, keep_len);
+	dst[keep_len] = '.';
+	dst[keep_len + 1] = '.';
+	dst[keep_len + 2] = '.';
+	CopyDataTrunc(dst + keep_len + 3, len - keep_len - 3, dot, ext_len);
 }
 
 static bool IsDots(const char *s)
@@ -512,7 +512,7 @@ void OemToUtf8(char *dst, int dstSize, const char *src)
 	dst[pos] = '\0';
 }
 
-static void CountDetectedCodePageChars(const char *src, int &cp850Count, int &cp866Count)
+static void CountDetectedCodePageChars(const char *src, int &cp850, int &cp866)
 {
 	if( src == NULL )
 		return;
@@ -528,30 +528,30 @@ static void CountDetectedCodePageChars(const char *src, int &cp850Count, int &cp
 			continue;
 
 		if( UnicodeToCp850(ch) != '_' )
-			cp850Count++;
+			cp850++;
 
 		if( UnicodeToCp866(ch) != '_' )
-			cp866Count++;
+			cp866++;
 	}
 }
 
 static bool UpdateEncoding(const char *src)
 {
-	int cp850Count = 0;
-	int cp866Count = 0;
-	CountDetectedCodePageChars(src, cp850Count, cp866Count);
+	int cp850 = 0;
+	int cp866 = 0;
+	CountDetectedCodePageChars(src, cp850, cp866);
 
-	if( cp866Count > cp850Count )
+	if( cp866 > cp850 )
 	{
 		g_Encoding = OEM_CP866;
 		return true;
 	}
-	if( cp850Count > cp866Count )
+	if( cp850 > cp866 )
 	{
 		g_Encoding = OEM_CP850;
 		return true;
 	}
-	if( cp850Count == 0 && cp866Count == 0 && strlen(src) > 256 )
+	if( cp850 == 0 && cp866 == 0 && strlen(src) > 256 )
 	{
 		g_Encoding = OEM_ASCII;
 		return true;

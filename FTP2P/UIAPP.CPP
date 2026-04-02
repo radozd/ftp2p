@@ -30,6 +30,10 @@
 #define UI_KEY_END      0x4F00
 #define UI_KEY_PGUP     0x4900
 #define UI_KEY_PGDN     0x5100
+#define UI_KEY_INS      0x5200
+#define UI_KEY_GRAY_PLUS  0x4E2B
+#define UI_KEY_GRAY_MINUS 0x4A2D
+#define UI_KEY_GRAY_STAR  0x372A
 
 #define UI_KEY_F1       0x3B00
 #define UI_KEY_F2       0x3C00
@@ -80,6 +84,8 @@ typedef enum {
 #define UI_ATTR_NORMAL            UI_ATTR(EGA_LIGHT_GRAY, EGA_BLACK)
 #define UI_ATTR_SELECTED          UI_ATTR(EGA_BLACK, EGA_LIGHT_GRAY)
 #define UI_ATTR_DIRECTORY         UI_ATTR(EGA_WHITE, EGA_BLACK)
+#define UI_ATTR_MARKED            UI_ATTR(EGA_YELLOW, EGA_BLACK)
+#define UI_ATTR_MARKED_CURRENT    UI_ATTR(EGA_YELLOW, EGA_LIGHT_GRAY)
 #define UI_ATTR_FOOTER_TEXT       UI_ATTR(EGA_BLACK, EGA_LIGHT_GRAY)
 
 #define UI_ATTR_STATUS_OK         UI_ATTR(EGA_LIGHT_GRAY, EGA_BLACK)
@@ -268,6 +274,8 @@ private:
 	void DoGet();
 	void DoPut();
 	void CopyCurrentItem();
+	void CopySelectedItems();
+	void DeleteSelectedItems();
 
 	bool RefreshPanel(bool remote);
 	void EnterCurrentItem();
@@ -280,7 +288,9 @@ private:
 	void WritePadAt(int x, int y, const char *s, int w, uint8_t attr=UI_ATTR_NORMAL);
 	void WriteFillAt(int x, int y, int count, int ch);
 	void WriteAt(int x, int y, const char *s, uint8_t attr=UI_ATTR_NORMAL);
-	void FormatFreeSpace(char *dst, size_t dstSize, long bytes);
+	void FormatSize(char *dst, size_t dstSize, long bytes);
+	void FormatSelectedStats(char *dst, size_t dstSize, UiList *lst);
+	void FormatFreeSpace(char *dst, size_t dstSize, UiList *lst);
 	void DrawPanel(int x, int y, int w, int h, UiList *lst, bool active);
 };
 
@@ -455,6 +465,29 @@ void UiApp::Loop()
 		{
 			_needRedraw = MoveActiveSelection(GetActiveList()->Count());
 		}
+		else if( key == UI_KEY_INS )
+		{
+			_needRedraw = GetActiveList()->ToggleCurrentSelection(true);
+		}
+		else if( ascii == ' ' )
+		{
+			_needRedraw = GetActiveList()->ToggleCurrentSelection(false);
+		}
+		else if( key == UI_KEY_GRAY_PLUS )
+		{
+			GetActiveList()->SelectAllFiles();
+			_needRedraw = true;
+		}
+		else if( key == UI_KEY_GRAY_MINUS )
+		{
+			GetActiveList()->ClearSelectionMarks();
+			_needRedraw = true;
+		}
+		else if( key == UI_KEY_GRAY_STAR )
+		{
+			GetActiveList()->InvertFileSelection();
+			_needRedraw = true;
+		}
 		else if( key == UI_KEY_F5 )
 		{
 			CopyCurrentItem();
@@ -481,10 +514,10 @@ void UiApp::Loop()
 void UiApp::Redraw()
 {
 	int mid = g_ScreenCols / 2;
-	int panelH = g_ScreenRows - 2;
+	int panel_h = g_ScreenRows - 2;
 
-	DrawPanel(0, 0, mid, panelH, &g_RemoteList, !_activePanel);
-	DrawPanel(mid, 0, g_ScreenCols - mid, panelH, &g_LocalList, _activePanel);
+	DrawPanel(0, 0, mid, panel_h, &g_RemoteList, !_activePanel);
+	DrawPanel(mid, 0, g_ScreenCols - mid, panel_h, &g_LocalList, _activePanel);
 	PrintStatus();
 
 	char footer[160];
@@ -690,22 +723,86 @@ void UiApp::DoPut()
 	if( !e || e->isDir || e->isParent )
 		return;
 
-	char remoteName[UI_NAME_MAX * 3];
-	if( !MakeRemoteName(remoteName, sizeof(remoteName), e->name, true) )
+	char remote_name[UI_NAME_MAX * 3];
+	if( !MakeRemoteName(remote_name, sizeof(remote_name), e->name, true) )
 	{
 		SetStatusText('E', "Invalid remote name for PUT");
 		return;
 	}
 
-	if( !ConfirmOverwrite(true, remoteName) )
+	if( !ConfirmOverwrite(true, remote_name) )
 		return;
 
-	if( g_ftp.DoPutAndWait(remoteName, NULL, e->size) )
+	if( g_ftp.DoPutAndWait(e->name, remote_name, e->size) )
 		g_RemoteList.Invalidate();
+}
+
+void UiApp::CopySelectedItems()
+{
+	UiList *list = GetActiveList();
+	int selectedCount = list->SelectedFileCount();
+	if( selectedCount <= 0 )
+		return;
+
+	UiEntry **items = (UiEntry **)malloc((size_t)selectedCount * sizeof(UiEntry *));
+	if( items == NULL )
+	{
+		SetStatusText('E', "Not enough memory");
+		return;
+	}
+
+	int count = list->AllSelected(items, selectedCount);
+	int ok_count = 0;
+	uint32_t ok_bytes = 0;
+
+	for( int i = 0; i < count; i++ )
+	{
+		UiEntry *e = items[i];
+		bool ok = false;
+
+		if( IsRemoteActive() )
+		{
+			char localFile[LOCALFILE_MAX_LEN];
+			if( MakeDosName(localFile, e->name, !g_NoUtf8Arg) && ConfirmOverwrite(false, localFile) )
+				ok = g_ftp.DoGetAndWait(e->name, localFile, e->size);
+		}
+		else
+		{
+			char remote_name[UI_NAME_MAX * 3];
+			if( MakeRemoteName(remote_name, sizeof(remote_name), e->name, true) && ConfirmOverwrite(true, remote_name) )
+				ok = g_ftp.DoPutAndWait(e->name, remote_name, e->size);
+		}
+
+		if( ok )
+		{
+			e->selected = false;
+			ok_count++;
+			ok_bytes += e->size;
+		}
+	}
+
+	free(items);
+
+	if( ok_count > 0 )
+	{
+		if( IsRemoteActive() )
+			g_LocalList.Invalidate();
+		else
+			g_RemoteList.Invalidate();
+	}
+
+	SetStatusText(ok_count == count ? 'I' : 'W', "Copied %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
 }
 
 void UiApp::CopyCurrentItem()
 {
+	UiList *list = GetActiveList();
+	if( list->SelectedFileCount() > 0 )
+	{
+		CopySelectedItems();
+		return;
+	}
+
 	if( IsRemoteActive() )
 		DoGet();
 	else
@@ -767,9 +864,56 @@ void UiApp::EnterCurrentItem()
 	}
 }
 
+void UiApp::DeleteSelectedItems()
+{
+	UiList *list = GetActiveList();
+	int selectedCount = list->SelectedFileCount();
+	if( selectedCount <= 0 )
+		return;
+
+	if( !AskYesNo("Delete %d selected files?", selectedCount) )
+		return;
+
+	UiEntry **items = (UiEntry **)malloc((size_t)selectedCount * sizeof(UiEntry *));
+	if( items == NULL )
+	{
+		SetStatusText('E', "Not enough memory");
+		return;
+	}
+
+	int count = list->AllSelected(items, selectedCount);
+	int ok_count = 0;
+	uint32_t ok_bytes = 0;
+
+	for( int i = 0; i < count; i++ )
+	{
+		UiEntry *e = items[i];
+		bool ok = IsRemoteActive() ? g_ftp.DeleteFile(e->name) : g_local.DeleteFile(e->name);
+		if( ok )
+		{
+			e->selected = false;
+			ok_count++;
+			ok_bytes += e->size;
+		}
+	}
+
+	free(items);
+
+	if( ok_count > 0 )
+		list->Invalidate();
+
+	SetStatusText(ok_count == count ? 'I' : 'W', "Deleted %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
+}
+
 void UiApp::DeleteCurrentItem()
 {
 	UiList *list = GetActiveList();
+	if( list->SelectedFileCount() > 0 )
+	{
+		DeleteSelectedItems();
+		return;
+	}
+
 	UiEntry *e = list->GetCurrent();
 	if( !e || e->isParent )
 		return;
@@ -805,19 +949,19 @@ void UiApp::MakeDirInCurrentPanel()
 
 	UiList *list = GetActiveList();
 	bool ok = false;
-	const char *selName = name;
-	char remoteName[UI_NAME_MAX * 3];
+	const char *sel_name = name;
+	char remote_name[UI_NAME_MAX * 3];
 
 	if( IsRemoteActive() )
 	{
-		if( !MakeRemoteName(remoteName, sizeof(remoteName), name, true) )
+		if( !MakeRemoteName(remote_name, sizeof(remote_name), name, true) )
 		{
 			SetStatusText('E', "Invalid remote name");
 			return;
 		}
 
-		selName = remoteName;
-		ok = g_ftp.MakeDir(remoteName);
+		sel_name = remote_name;
+		ok = g_ftp.MakeDir(remote_name);
 	}
 	else
 	{
@@ -826,7 +970,7 @@ void UiApp::MakeDirInCurrentPanel()
 
 	if( ok )
 	{
-		list->SetPendingSelection(selName);
+		list->SetPendingSelection(sel_name);
 		list->Invalidate();
 		SetStatusText('I', "MkDir: %s", name);
 	}
@@ -839,55 +983,61 @@ void UiApp::MakeDirInCurrentPanel()
 void UiApp::RenameCurrentItem()
 {
 	UiList *list = GetActiveList();
+	if( list->SelectedFileCount() != 0 )
+	{
+		SetStatusText('W', "Clear selection before rename");
+		return;
+	}
+
 	UiEntry *e = list->GetCurrent();
 	if( !e || e->isParent )
 		return;
 
-	char oldName[UI_NAME_MAX];
+	char old_name[UI_NAME_MAX];
 	if( IsRemoteActive() )
-		list->PrintName(oldName, sizeof(oldName), e);
+		list->PrintName(old_name, sizeof(old_name), e);
 	else
-		CopyTrunc(oldName, sizeof(oldName), e->name);
+		CopyTrunc(old_name, sizeof(old_name), e->name);
 
-	char newName[UI_NAME_MAX];
-	if( !AskString(newName, sizeof(newName), IsRemoteActive() ? "Remote rename to" : "Local rename to", oldName) )
+	char new_name[UI_NAME_MAX];
+	if( !AskString(new_name, sizeof(new_name), IsRemoteActive() ? "Remote rename to" : "Local rename to", old_name) )
 		return;
 
 	bool ok = false;
-	const char *selName = newName;
-	char remoteNewName[UI_NAME_MAX * 3];
+	const char *sel_name = new_name;
+	char remote_new_name[UI_NAME_MAX * 3];
 
 	if( IsRemoteActive() )
 	{
-		if( !MakeRemoteName(remoteNewName, sizeof(remoteNewName), newName, true) )
+		if( !MakeRemoteName(remote_new_name, sizeof(remote_new_name), new_name, true) )
 		{
 			SetStatusText('E', "Invalid remote name");
 			return;
 		}
 
-		if( strcmp(remoteNewName, e->name) == 0 )
+		if( strcmp(remote_new_name, e->name) == 0 )
 			return;
 
-		selName = remoteNewName;
-		ok = g_ftp.RenameItem(e->name, remoteNewName);
+		sel_name = remote_new_name;
+		ok = g_ftp.RenameItem(e->name, remote_new_name);
 	}
 	else
 	{
-		if( stricmp(newName, oldName) == 0 )
+		if( stricmp(new_name, old_name) == 0 )
 			return;
 
-		ok = g_local.RenameItem(e->name, newName);
+		ok = g_local.RenameItem(e->name, new_name);
 	}
 
 	if( ok )
 	{
-		list->SetPendingSelection(selName);
+		list->SetPendingSelection(sel_name);
 		list->Invalidate();
-		SetStatusText('I', "Renamed: %s", newName);
+		SetStatusText('I', "Renamed: %s", new_name);
 	}
 	else
 	{
-		SetStatusText('E', "Rename failed: %s", oldName);
+		SetStatusText('E', "Rename failed: %s", old_name);
 	}
 }
 
@@ -936,18 +1086,58 @@ void UiApp::WriteAt(int x, int y, const char *s, uint8_t attr)
 		PutChAtAttr(x + i, y, s[i], attr);
 }
 
-
-void UiApp::FormatFreeSpace(char *dst, size_t dstSize, long bytes)
+void UiApp::FormatSize(char *dst, size_t dstSize, long bytes)
 {
 	if( dst == NULL || dstSize == 0 )
 		return;
 
-	if( bytes >= 1024ul * 1024ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%luM free", (unsigned long)(bytes / (1024ul * 1024ul)));
-	else if( bytes >= 1024ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%luK free", (unsigned long)(bytes / 1024ul));
-	else
-		SprintfTrunc(dst, (size_t)dstSize, "%lu free", (unsigned long)bytes);
+	if( bytes < 10240ul )
+		SprintfTrunc(dst, (size_t)dstSize, "%luB", (unsigned long)bytes);
+	else if( bytes < 1024ul * 1024ul )
+		SprintfTrunc(dst, (size_t)dstSize, "%luKB", (unsigned long)(bytes / 1024ul));
+	else if( bytes < 1024ul * 1024ul * 1024ul )
+		SprintfTrunc(dst, (size_t)dstSize, "%.2fMB", (double)bytes / (1024.0 * 1024.0));
+	else if( bytes < 1024ul * 1024ul * 1024ul * 1024ul )
+		SprintfTrunc(dst, (size_t)dstSize, "%.3fGB", (double)bytes / (1024.0 * 1024.0 * 1024.0));
+	else // lol
+		SprintfTrunc(dst, (size_t)dstSize, "%.4fTB", (double)bytes / (1024.0 * 1024.0 * 1024.0 * 1024.0));
+}
+
+void UiApp::FormatSelectedStats(char *dst, size_t dstSize, UiList *lst)
+{
+	if( dst == NULL || dstSize == 0 )
+		return;
+
+	dst[0] = '\0';
+	if( lst == NULL )
+		return;
+
+	int count = lst->SelectedFileCount();
+	if( count <= 0 )
+		return;
+
+	char sizebuf[32];
+	FormatSize(sizebuf, sizeof(sizebuf), (long)lst->SelectedFileBytes());
+
+	SprintfTrunc(dst, dstSize, " %d / %s ", count, sizebuf);
+}
+
+void UiApp::FormatFreeSpace(char *dst, size_t dstSize, UiList *lst)
+{
+	if( dst == NULL || dstSize == 0 )
+		return;
+
+	dst[0] = '\0';
+	if( lst == NULL )
+		return;
+
+	if( lst->GetFreeBytes() < 0 )
+		return;
+
+	char sizebuf[32];
+	FormatSize(sizebuf, sizeof(sizebuf), lst->GetFreeBytes());
+
+	SprintfTrunc(dst, dstSize, " %s free ", sizebuf);
 }
 
 void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
@@ -965,24 +1155,33 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 		UiEntry *e = lst->GetFromTop(row);
 		lst->PrintName(namebuf, maxName, e);
 
-		if( active && e == cur )
-			WritePadAt(x + 1, y + 1 + row, namebuf, w - 2, UI_ATTR_SELECTED);
+		bool is_current = active && e == cur;
+		bool is_marked = e != NULL && e->selected;
+		uint8_t attr;
+		if( is_current && is_marked )
+			attr = UI_ATTR_MARKED_CURRENT;
+		else if( is_current )
+			attr = UI_ATTR_SELECTED;
+		else if( is_marked )
+			attr = UI_ATTR_MARKED;
 		else
-			WritePadAt(x + 1, y + 1 + row, namebuf, w - 2, (e != NULL && e->isDir) ? UI_ATTR_DIRECTORY : UI_ATTR_NORMAL);
+			attr = (e != NULL && e->isDir) ? UI_ATTR_DIRECTORY : UI_ATTR_NORMAL;
+
+		WritePadAt(x + 1, y + 1 + row, namebuf, w - 2, attr);
 	}
 
 	if( rows > 0 && lst->Count() > rows )
 	{	
-		int thumbSize = (rows * rows) / lst->Count();
-		if( thumbSize < 1 )
-			thumbSize = 1;
-		if( thumbSize > rows )
-			thumbSize = rows;
-		int thumbPos = (lst->Top() * (rows - thumbSize)) / (lst->Count() - rows);
+		int thumb_size = (rows * rows) / lst->Count();
+		if( thumb_size < 1 )
+			thumb_size = 1;
+		if( thumb_size > rows )
+			thumb_size = rows;
+		int thumb_pos = (lst->Top() * (rows - thumb_size)) / (lst->Count() - rows);
 		for( int i = 0; i < rows; i++ )
 		{
 			PutChAt(x, y + 1 + i, CH_V);
-			PutChAt(x + w - 1, y + 1 + i, (i >= thumbPos && i < thumbPos + thumbSize) ? CH_THUMB : CH_SHADE);
+			PutChAt(x + w - 1, y + 1 + i, (i >= thumb_pos && i < thumb_pos + thumb_size) ? CH_THUMB : CH_SHADE);
 		}
 	}
 	else
@@ -1016,12 +1215,17 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 
 	memset(namebuf, CH_H, w - 2);
 	namebuf[w - 2] = '\0';
-	if( lst->GetFreeBytes() >= 0 )
-	{
-		char freebuf[32];
-		FormatFreeSpace(freebuf, sizeof(freebuf), lst->GetFreeBytes());
-		len = strlen(freebuf);
-		memcpy(namebuf + w - 3 - len, freebuf, len);
-	}
+
+	char selbuf[32];
+	FormatSelectedStats(selbuf, sizeof(selbuf), lst);
+	len = strlen(selbuf);
+	if( len > 0 )
+		memcpy(namebuf, selbuf, len);
+
+	char freebuf[32];
+	FormatFreeSpace(freebuf, sizeof(freebuf), lst);
+	len = strlen(freebuf);
+	if( len > 0 )
+		memcpy(namebuf + w - 2 - len, freebuf, len);
 	WriteAt(x + 1, y + h - 1, namebuf);
 }

@@ -27,6 +27,7 @@ typedef struct
 	uint32_t size;
 	bool isDir;
 	bool isParent;
+	bool selected;
 } UiEntry;
 
 class UiList
@@ -58,6 +59,13 @@ public:
 	bool SelectByName(const char *name);
 	void EnsureVisible(int height);
 	bool MoveSel(int delta);
+	bool ToggleCurrentSelection(bool moveAfter);
+	void ClearSelectionMarks();
+	void SelectAllFiles();
+	void InvertFileSelection();
+	int SelectedFileCount() const;
+	uint32_t SelectedFileBytes() const;
+	int AllSelected(UiEntry **items, int maxItems);
 	void SetPendingSelection(const char *name);
 	void SetPendingSelectionFromCwdTail();
 	void SetFallbackSelectionToCurrent();
@@ -271,6 +279,7 @@ UiEntry *UiList::Add(const char *name, bool isDir, bool isParent, uint32_t size,
 	e->isParent = isParent;
 	e->size = size;
 	CopyTrunc(e->modif, sizeof(e->modif), modif);
+	e->selected = false;
 
 	_count++;
 	return e;
@@ -356,6 +365,86 @@ bool UiList::MoveSel(int delta)
 		_sel = _count - 1;
 
 	return _sel != oldSel;
+}
+
+bool UiList::ToggleCurrentSelection(bool moveAfter)
+{
+	UiEntry *e = GetCurrent();
+	if( e == NULL || e->isParent || e->isDir )
+		return false;
+
+	e->selected = !e->selected;
+
+	if( moveAfter && _sel < _count - 1 )
+		_sel++;
+
+	return true;
+}
+
+void UiList::ClearSelectionMarks()
+{
+	for( int i = 0; i < _count; i++ )
+		_items[i].selected = false;
+}
+
+void UiList::SelectAllFiles()
+{
+	for( int i = 0; i < _count; i++ )
+	{
+		if( !_items[i].isParent && !_items[i].isDir )
+			_items[i].selected = true;
+	}
+}
+
+void UiList::InvertFileSelection()
+{
+	for( int i = 0; i < _count; i++ )
+	{
+		if( !_items[i].isParent && !_items[i].isDir )
+			_items[i].selected = !_items[i].selected;
+	}
+}
+
+int UiList::SelectedFileCount() const
+{
+	int n = 0;
+
+	for( int i = 0; i < _count; i++ )
+	{
+		if( _items[i].selected && !_items[i].isParent && !_items[i].isDir )
+			n++;
+	}
+
+	return n;
+}
+
+uint32_t UiList::SelectedFileBytes() const
+{
+	uint32_t total = 0;
+
+	for( int i = 0; i < _count; i++ )
+	{
+		if( _items[i].selected && !_items[i].isParent && !_items[i].isDir )
+			total += _items[i].size;
+	}
+
+	return total;
+}
+
+int UiList::AllSelected(UiEntry **items, int maxItems)
+{
+	int n = 0;
+
+	if( items == NULL || maxItems <= 0 )
+		return 0;
+
+	for( int i = 0; i < _count && n < maxItems; i++ )
+	{
+		if( _items[i].selected && !_items[i].isParent && !_items[i].isDir )
+			items[n++] = &_items[i];
+	}
+
+	return n;
 }
 
 void UiList::SetPendingSelection(const char *name)
