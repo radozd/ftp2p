@@ -288,7 +288,6 @@ private:
 	void WritePadAt(int x, int y, const char *s, int w, uint8_t attr=UI_ATTR_NORMAL);
 	void WriteFillAt(int x, int y, int count, int ch);
 	void WriteAt(int x, int y, const char *s, uint8_t attr=UI_ATTR_NORMAL);
-	void FormatSize(char *dst, size_t dstSize, long bytes);
 	void FormatSelectedStats(char *dst, size_t dstSize, UiList *lst);
 	void FormatFreeSpace(char *dst, size_t dstSize, UiList *lst);
 	void DrawPanel(int x, int y, int w, int h, UiList *lst, bool active);
@@ -1086,23 +1085,6 @@ void UiApp::WriteAt(int x, int y, const char *s, uint8_t attr)
 		PutChAtAttr(x + i, y, s[i], attr);
 }
 
-void UiApp::FormatSize(char *dst, size_t dstSize, long bytes)
-{
-	if( dst == NULL || dstSize == 0 )
-		return;
-
-	if( bytes < 10240ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%luB", (unsigned long)bytes);
-	else if( bytes < 1024ul * 1024ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%luKB", (unsigned long)(bytes / 1024ul));
-	else if( bytes < 1024ul * 1024ul * 1024ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%.2fMB", (double)bytes / (1024.0 * 1024.0));
-	else if( bytes < 1024ul * 1024ul * 1024ul * 1024ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%.3fGB", (double)bytes / (1024.0 * 1024.0 * 1024.0));
-	else // lol
-		SprintfTrunc(dst, (size_t)dstSize, "%.4fTB", (double)bytes / (1024.0 * 1024.0 * 1024.0 * 1024.0));
-}
-
 void UiApp::FormatSelectedStats(char *dst, size_t dstSize, UiList *lst)
 {
 	if( dst == NULL || dstSize == 0 )
@@ -1117,7 +1099,7 @@ void UiApp::FormatSelectedStats(char *dst, size_t dstSize, UiList *lst)
 		return;
 
 	char sizebuf[32];
-	FormatSize(sizebuf, sizeof(sizebuf), (long)lst->SelectedFileBytes());
+	FormatSize(sizebuf, sizeof(sizebuf), lst->SelectedFileBytes());
 
 	SprintfTrunc(dst, dstSize, " %d / %s ", count, sizebuf);
 }

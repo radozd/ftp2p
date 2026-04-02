@@ -273,6 +273,21 @@ static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, ui
 	return false;
 }
 
+void FormatSize(char *dst, size_t dstSize, __int64 bytes)
+{
+	if( dst == NULL || dstSize == 0 )
+		return;
+
+	if( bytes < 10240ul )
+		SprintfTrunc(dst, (size_t)dstSize, "%lu B", (unsigned long)bytes);
+	else if( bytes < 1024ul * 1024ul )
+		SprintfTrunc(dst, (size_t)dstSize, "%lu KB", (unsigned long)(bytes / 1024ul));
+	else if( bytes < 1024ul * 1024ul * 1024ul )
+		SprintfTrunc(dst, (size_t)dstSize, "%.2f MB", (double)bytes / (1024.0 * 1024.0));
+	else
+		SprintfTrunc(dst, (size_t)dstSize, "%.3f GB", (double)bytes / (1024.0 * 1024.0 * 1024.0));
+}
+
 static int KeyAscii(uint16_t key)
 {
 	return (int)(key & 0x00FF);

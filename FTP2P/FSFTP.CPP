@@ -310,7 +310,7 @@ FtpTransport::FtpTransport()
 	_pasvPort = 0;
 
 	_connectTimeout = 10000ul;
-	SetTimeoutProfile(15000ul, 45000ul, 120000ul);
+	SetTimeoutProfile(15000ul, 45000ul, 1200000ul);
 }
 
 bool FtpTransport::Init(StatusCallback statusCallback, UiList *remoteList)
@@ -561,17 +561,19 @@ void FtpTransport::SetTransferProgress(bool get, const char *name, uint32_t byte
 	char shown[32];
 	CropLeft(shown, sizeof(shown), name ? name : "");
 
+	char sizebuf[32];
+	FormatSize(sizebuf, sizeof(sizebuf), bytes);
+
 	if( totalBytes == 0 )
 	{
-		SetStatus('T', "%s %s : %lu bytes", get ? "GET":"PUT", shown, (unsigned long)bytes);
+		SetStatus('T', "%s %s : %s", get ? "GET":"PUT", shown, sizebuf);
 		return;
 	}
 
+	char totalbuf[32];
+	FormatSize(totalbuf, sizeof(totalbuf), totalBytes);
+
 	uint32_t percent;
-
-	char buf[16];
-	SprintfTrunc(buf, sizeof(buf), "%lu", (unsigned long)totalBytes);
-
 	if( bytes >= totalBytes )
 		percent = 100u;
 	else if( totalBytes >= 100u )
@@ -582,9 +584,7 @@ void FtpTransport::SetTransferProgress(bool get, const char *name, uint32_t byte
 	if( percent > 100u )
 		percent = 100u;
 
-	SetStatus('T', "%s %s : %*lu/%s %3lu%%",
-		get ? "GET":"PUT", shown, (int)strlen(buf), (unsigned long)bytes,
-		buf, (unsigned long)percent);
+	SetStatus('T', "%s %s : %s/%s %3lu%%", get ? "GET":"PUT", shown, sizebuf, totalbuf, percent);
 }
 
 void FtpTransport::CheckAbortKey()
@@ -1619,7 +1619,7 @@ bool FtpTransport::ReadFileList()
 	return done == 1;
 }
 
-static uint32_t computeRate(uint32_t bytes, uint32_t elapsed)
+static uint32_t ComputeRate(uint32_t bytes, uint32_t elapsed)
 {
 	uint32_t rate;
 
@@ -1738,9 +1738,13 @@ bool FtpTransport::ReceiveFile()
 	if( done == 1 )
 	{
 		uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
-		uint32_t rate = computeRate(total_received, elapsed);
-		SetStatus('T', "%lu bytes received in %lu.%1lu seconds (%lu.%1lu KBytes/sec)",
-			total_received, elapsed / 1000u, (elapsed % 1000u) / 100u, rate / 1024u, ((rate % 1024u) * 10u) / 1024u);
+		uint32_t rate = ComputeRate(total_received, elapsed);
+
+		char sizebuf[32];
+		FormatSize(sizebuf, sizeof(sizebuf), total_received);
+
+		SetStatus('T', "%s received in %lu.%1lu seconds (%lu.%1lu KBytes/sec)",
+			sizebuf, elapsed / 1000u, (elapsed % 1000u) / 100u, rate / 1024u, ((rate % 1024u) * 10u) / 1024u);
 	}
 	ClearTransferContext();
 
@@ -1874,9 +1878,13 @@ bool FtpTransport::SendFile()
 	if( done == 1 )
 	{
 		uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
-		uint32_t rate = computeRate(total_sent, elapsed);
-		SetStatus('T', "%lu bytes sent in %lu.%1lu seconds (%lu.%1lu KBytes/sec)",
-			total_sent, elapsed / 1000u, (elapsed % 1000u) / 100u, rate / 1024u, ((rate % 1024u) * 10u) / 1024u);
+		uint32_t rate = ComputeRate(total_sent, elapsed);
+
+		char sizebuf[32];
+		FormatSize(sizebuf, sizeof(sizebuf), total_sent);
+		
+		SetStatus('T', "%s sent in %lu.%1lu seconds (%lu.%1lu KBytes/sec)",
+			sizebuf, elapsed / 1000u, (elapsed % 1000u) / 100u, rate / 1024u, ((rate % 1024u) * 10u) / 1024u);
 	}
 	ClearTransferContext();
 

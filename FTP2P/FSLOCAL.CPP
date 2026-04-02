@@ -109,7 +109,7 @@ bool LocalFsTransport::ListCwd()
 	struct diskfree_t df;
 	if( _dos_getdiskfree(0, &df) == 0 )
 	{
-		long freeBytes = (long)((uint32_t)df.avail_clusters * (uint32_t)df.sectors_per_cluster * (uint32_t)df.bytes_per_sector);
+		__int64 freeBytes = (__int64)df.avail_clusters * (__int64)df.sectors_per_cluster * (__int64)df.bytes_per_sector;
 		_localList->SetFreeBytes(freeBytes);
 	}
 	else

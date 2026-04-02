@@ -46,8 +46,9 @@ public:
 	void PrintCwd(char *dst, int maxw);
 	void PrintName(char *dst, int maxw, UiEntry *e);
 	void PrintStats(char *dst, int maxw, UiEntry *e);
-	void SetFreeBytes(long freeBytes) { _freeBytes = freeBytes; }
-	long GetFreeBytes() const { return _freeBytes; }
+	
+	void SetFreeBytes(__int64 freeBytes) { _freeBytes = freeBytes; }
+	__int64 GetFreeBytes() const { return _freeBytes; }
 
 	void UpdateEncoding();
 	
@@ -92,7 +93,7 @@ private:
 	int _sel;
 	char _pendingSelection[UI_NAME_MAX];
 	int _fallbackSelectionIndex;
-	long _freeBytes;
+	__int64 _freeBytes;
 	bool _needRefresh;
 
 	static int EntryCmp(const void *a, const void *b);
@@ -253,14 +254,14 @@ void UiList::PrintStats(char *dst, int maxw, UiEntry *e)
 	if( e == NULL || e->isParent || e->isDir )
 		return;
 
-	char left[32];
-	sprintf(left, "%lu bytes", (unsigned long)e->size);
+	char sizebuf[32];
+	FormatSize(sizebuf, sizeof(sizebuf), e->size);
 
-	int spaces = maxw - strlen(left) - strlen(e->modif) - 1;
+	int spaces = maxw - strlen(sizebuf) - strlen(e->modif) - 1;
 	if( spaces < 1 )
 		spaces = 1;
 
-	SprintfTrunc(dst, maxw, "%s%*s%s", left, spaces, "", e->modif);
+	SprintfTrunc(dst, maxw, "%s%*s%s", sizebuf, spaces, "", e->modif);
 }
 
 UiEntry *UiList::Add(const char *name, bool isDir, bool isParent, uint32_t size, const char *modif)
