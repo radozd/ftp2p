@@ -148,7 +148,6 @@ void UiList::Clear()
 	_sel = 0;
 	_top = 0;
 	_truncated = false;
-	ClearPendingSelection();
 	_fallbackSelectionIndex = -1;
 }
 
