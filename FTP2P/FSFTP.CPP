@@ -79,6 +79,23 @@ enum TransferModes_t
 	PortFirst
 };
 
+enum TransferAction_t
+{
+	TransferActionList,
+	TransferActionGet,
+	TransferActionPut
+};
+
+enum TransferResult_t
+{
+	TransferInProgress = 0,
+	TransferCompleted,
+	TransferSocketError,
+	TransferFileError,
+	TransferAborted,
+	TransferTimedOut
+};
+
 typedef struct
 {
 	TcpBuffer b;
@@ -105,8 +122,7 @@ typedef struct
 typedef struct
 {
 	uint32_t command;
-	uint32_t list;
-	uint32_t transfer;
+	uint32_t dataIdle;
 } FtpTimeoutProfile;
 
 class FtpTransport
@@ -117,7 +133,7 @@ public:
 	FtpTransport();
 
 	bool Init(StatusCallback statusCallback, UiList *remoteList);
-	void SetTimeoutProfile(uint32_t commandTimeoutMs, uint32_t listTimeoutMs, uint32_t transferTimeoutMs);
+	void SetTimeoutProfile(uint32_t commandTimeoutMs, uint32_t dataIdleTimeoutMs);
 
 	bool ConnectAndLogin(const char *host, uint16_t port, const char *user, const char *pass);
 	void Quit();
@@ -187,6 +203,7 @@ private:
 
 	uint32_t _connectTimeout;
 	FtpTimeoutProfile _timeouts;
+	clockTicks_t _lastScenarioActivity;
 	
 	bool _ctrlHandlersInstalled;
 	bool _multilineResponse;
@@ -196,20 +213,22 @@ private:
 	void DestroySockets();
 
 	void SetStatus(char type, const char *fmt, ...);
+	bool FinalizeTransfer(TransferAction_t action, TransferResult_t result, const char *detail = NULL);
 	void SetTransferProgress(bool get, const char *name, uint32_t bytes, uint32_t totalBytes);
 	void CheckAbortKey();
+	bool IsIdleTimedOut(clockTicks_t lastProgress, uint32_t timeoutMs, const char *statusText);
 
 	bool WaitForReplyAndFinalize(uint32_t timeoutMs, FtpReply *replyOut);
 	void ResetReplyState();
+	void TouchScenarioActivity();
 	void AppendReplyLine(const char *line);
 	void FinalizeReply(FtpReply *replyOut);
 	bool WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t mask1);
 
 	bool SendAndWaitRawEx(const char *verb, const char *arg, FtpReply *replyOut, uint32_t timeoutMs);
 	bool SendAndWaitRaw(const char *verb, const char *arg, uint32_t timeoutMs);
-	bool RunStarterAndWaitEx(uint32_t timeoutMs, void (FtpTransport::*starter)(), FtpReply *replyOut);
-	bool RunStarterAndWait(uint32_t timeoutMs, void (FtpTransport::*starter)());
-	bool ExecutePasvCommandAndWait(ClientState_t nextState, FtpReply *replyOut, uint32_t timeoutMs);
+	bool BeginScenarioAndWaitEx(uint32_t timeoutMs, void (FtpTransport::*scenarioStarter)(), FtpReply *replyOut);
+	bool BeginScenarioAndWait(uint32_t timeoutMs, void (FtpTransport::*scenarioStarter)());
 
 	void ReadConfigParms();
 	bool ResolveServer(char *name, IpAddr_t addr);
@@ -225,8 +244,9 @@ private:
 	void SendPassCommand(const char *password);
 	void SendStorCommand(ClientState_t nextState);
 
-	void DoGet();
-	void DoPut();
+	void StartList();
+	void StartRetrieve();
+	void StartStore();
 	void StartTransfer(bool get);
 	void PrepareTransferContext(const char *serverFile, const char *localFile, uint32_t totalBytes);
 	void ClearTransferContext();
@@ -310,7 +330,7 @@ FtpTransport::FtpTransport()
 	_pasvPort = 0;
 
 	_connectTimeout = 10000ul;
-	SetTimeoutProfile(15000ul, 45000ul, 1200000ul);
+	SetTimeoutProfile(15000ul, 120000ul);
 }
 
 bool FtpTransport::Init(StatusCallback statusCallback, UiList *remoteList)
@@ -534,11 +554,10 @@ void FtpTransport::Quit()
 	SendCommandWithState("QUIT", NULL, CmdSent);
 }
 
-void FtpTransport::SetTimeoutProfile(uint32_t commandTimeoutMs, uint32_t listTimeoutMs, uint32_t transferTimeoutMs)
+void FtpTransport::SetTimeoutProfile(uint32_t commandTimeoutMs, uint32_t dataIdleTimeoutMs)
 {
 	_timeouts.command = commandTimeoutMs;
-	_timeouts.list = listTimeoutMs;
-	_timeouts.transfer = transferTimeoutMs;
+	_timeouts.dataIdle = dataIdleTimeoutMs;
 }
 
 void FtpTransport::SetStatus(char type, const char *fmt, ...)
@@ -554,6 +573,50 @@ void FtpTransport::SetStatus(char type, const char *fmt, ...)
 	va_end(ap);
 
 	UiStatusCallback(type, tmp);
+}
+
+bool FtpTransport::FinalizeTransfer(TransferAction_t action, TransferResult_t result, const char *detail)
+{
+	const char *actionText = "";
+
+	switch( action )
+	{
+	case TransferActionList: actionText = "Listing"; break;
+	case TransferActionGet: actionText = "GET"; break;
+	case TransferActionPut: actionText = "PUT"; break;
+	default: actionText = "Transfer"; break;
+	}
+
+	switch( result )
+	{
+	case TransferCompleted:
+		return true;
+
+	case TransferSocketError:
+		SetStatus('E', "%s aborted due to socket error", actionText);
+		break;
+
+	case TransferFileError:
+		if( detail != NULL && detail[0] != '\0' )
+			SetStatus('E', "%s aborted due to filesystem error: %s", actionText, detail);
+		else
+			SetStatus('E', "%s aborted due to filesystem error", actionText);
+		break;
+
+	case TransferAborted:
+		SetStatus('W', "%s aborted with Ctrl-Break", actionText);
+		break;
+
+	case TransferTimedOut:
+		SetStatus('W', "%s aborted due to timeout", actionText);
+		break;
+
+	default:
+		SetStatus('E', "%s aborted due to unknown error", actionText);
+		break;
+	}
+
+	return false;
 }
 
 void FtpTransport::SetTransferProgress(bool get, const char *name, uint32_t bytes, uint32_t totalBytes)
@@ -600,6 +663,20 @@ void FtpTransport::CheckAbortKey()
 	}
 }
 
+bool FtpTransport::IsIdleTimedOut(clockTicks_t lastProgress, uint32_t timeoutMs, const char *statusText)
+{
+	if( timeoutMs == 0 )
+		return false;
+
+	if( Timer_diff(lastProgress, TIMER_GET_CURRENT()) * TIMER_TICK_LEN > timeoutMs )
+	{
+		SetStatus('W', "%s", statusText ? statusText : "Timeout");
+		return true;
+	}
+
+	return false;
+}
+
 bool FtpTransport::SetBinaryType()
 {
 	return SendAndWaitRaw("TYPE", "I", _timeouts.command);
@@ -630,7 +707,7 @@ bool FtpTransport::ReadCwd()
 bool FtpTransport::ListCwd()
 {
 	FtpReply reply;
-	if( !ExecutePasvCommandAndWait(ListSentPasv, &reply, _timeouts.list) )
+	if( !BeginScenarioAndWaitEx(_timeouts.command, &FtpTransport::StartList, &reply) )
 		return false;
 	return reply.code < 400u;
 }
@@ -685,7 +762,7 @@ bool FtpTransport::RenameItem(const char *fromPath, const char *toPath)
 bool FtpTransport::DoGetAndWait(const char *serverFile, const char *localFile, uint32_t totalBytes)
 {
 	PrepareTransferContext(serverFile, localFile, totalBytes);
-	bool rc = RunStarterAndWait(_timeouts.transfer, &FtpTransport::DoGet);
+	bool rc = BeginScenarioAndWait(_timeouts.command, &FtpTransport::StartRetrieve);
 	if( !rc )
 		ClearTransferContext();
 	return rc;
@@ -694,7 +771,7 @@ bool FtpTransport::DoGetAndWait(const char *serverFile, const char *localFile, u
 bool FtpTransport::DoPutAndWait(const char *localFile, const char *serverFile, uint32_t totalBytes)
 {
 	PrepareTransferContext(serverFile, localFile, totalBytes);
-	bool rc = RunStarterAndWait(_timeouts.transfer, &FtpTransport::DoPut);
+	bool rc = BeginScenarioAndWait(_timeouts.command, &FtpTransport::StartStore);
 	if( !rc )
 		ClearTransferContext();
 	return rc;
@@ -716,6 +793,12 @@ void FtpTransport::ResetReplyState()
 	_replyText[0] = '\0';
 	_replyCodeInProgress = 0;
 	_multilineResponse = false;
+	TouchScenarioActivity();
+}
+
+void FtpTransport::TouchScenarioActivity()
+{
+	_lastScenarioActivity = TIMER_GET_CURRENT();
 }
 
 void FtpTransport::AppendReplyLine(const char *line)
@@ -743,7 +826,7 @@ void FtpTransport::FinalizeReply(FtpReply *replyOut)
 
 bool FtpTransport::WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t mask1)
 {
-	clockTicks_t start = TIMER_GET_CURRENT();
+	TouchScenarioActivity();
 
 	while( 1 )
 	{
@@ -765,7 +848,7 @@ bool FtpTransport::WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t 
 				return true;
 		}
 
-		if( Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN > timeoutMs )
+		if( Timer_diff(_lastScenarioActivity, TIMER_GET_CURRENT()) * TIMER_TICK_LEN > timeoutMs )
 		{
 			SetStatus('W', "Timeout");
 			return false;
@@ -794,29 +877,25 @@ bool FtpTransport::SendAndWaitRaw(const char *verb, const char *arg, uint32_t ti
 	return reply.code < 400u;
 }
 
-bool FtpTransport::RunStarterAndWaitEx(uint32_t timeoutMs, void (FtpTransport::*starter)(), FtpReply *replyOut)
+bool FtpTransport::BeginScenarioAndWaitEx(uint32_t timeoutMs, void (FtpTransport::*scenarioStarter)(), FtpReply *replyOut)
 {
 	_ctrlBreakDetected = false;
 	ResetReplyState();
-	(this->*starter)();
+	(this->*scenarioStarter)();
+	if( _clientState == CmdLine && _lastReplyCode >= 400u )
+	{
+		FinalizeReply(replyOut);
+		return false;
+	}
 	return WaitForReplyAndFinalize(timeoutMs, replyOut);
 }
 
-bool FtpTransport::RunStarterAndWait(uint32_t timeoutMs, void (FtpTransport::*starter)())
+bool FtpTransport::BeginScenarioAndWait(uint32_t timeoutMs, void (FtpTransport::*scenarioStarter)())
 {
 	FtpReply reply;
-	if( !RunStarterAndWaitEx(timeoutMs, starter, &reply) )
+	if( !BeginScenarioAndWaitEx(timeoutMs, scenarioStarter, &reply) )
 		return false;
 	return reply.code < 400u;
-}
-
-bool FtpTransport::ExecutePasvCommandAndWait(ClientState_t nextState, FtpReply *replyOut, uint32_t timeoutMs)
-{
-	_ctrlBreakDetected = false;
-	ResetReplyState();
-	SendPasvCommand();
-	_clientState = nextState;
-	return WaitForReplyAndFinalize(timeoutMs, replyOut);
 }
 
 void FtpTransport::ReadConfigParms()
@@ -849,6 +928,12 @@ void FtpTransport::ReadConfigParms()
 		((val = atoi(tmp)) >= 512) && (val <= 16384) )
 	{
 		_sendFileBufSize = val;
+	}
+
+	if( Utils::getAppValue("FTP_DATA_IDLE_TIMEOUT", tmp, 10) == 0 &&
+		((val = atoi(tmp)) > 0) )
+	{
+		_timeouts.dataIdle = (uint32_t)val * 1000ul;
 	}
 
 	Utils::closeCfgFile();
@@ -1061,11 +1146,18 @@ void FtpTransport::SendPortCommand()
 {
 	_dataPort = AllocNextEphemeralPort();
 
+	if( !ListenForDataSocket() )
+	{
+		_lastReplyCode = 425;
+		CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), "Could not open local listening socket");
+		_clientState = CmdLine;
+		return;
+	}
+
 	char buf[50];
 	int bytes = sprintf(buf, "PORT %d,%d,%d,%d,%d,%d" _NL_, MyIpAddr[0], MyIpAddr[1], MyIpAddr[2], MyIpAddr[3], _dataPort / 256, _dataPort % 256);
 
 	_controlSocket->send((uint8_t *)buf, bytes);
-	ListenForDataSocket();
 }
 
 void FtpTransport::SendUserCommand(const char *username)
@@ -1094,12 +1186,39 @@ void FtpTransport::SendStorCommand(ClientState_t nextState)
 	SendCommandWithState("STOR", filename, nextState);
 }
 
-void FtpTransport::DoGet()
+void FtpTransport::StartList()
+{
+	if( _transferMode == Passive )
+	{
+		SendPasvCommand();
+		_clientState = ListSentPasv;
+	}
+	else if( _transferMode == PortFirst )
+	{
+		SendPortCommand();
+		if( _clientState != CmdLine )
+			_clientState = ListSentPort;
+	}
+	else
+	{
+		_dataPort = AllocNextEphemeralPort();
+		if( !ListenForDataSocket() )
+		{
+			_lastReplyCode = 425;
+			CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), "Could not open local listening socket");
+			_clientState = CmdLine;
+			return;
+		}
+		SendCommandWithState("LIST", NULL, ListSentActive);
+	}
+}
+
+void FtpTransport::StartRetrieve()
 {
 	StartTransfer(true);
 }
 
-void FtpTransport::DoPut()
+void FtpTransport::StartStore()
 {
 	StartTransfer(false);
 }
@@ -1114,12 +1233,19 @@ void FtpTransport::StartTransfer(bool get)
 	else if( _transferMode == PortFirst )
 	{
 		SendPortCommand();
-		_clientState = get ? RetrSentPort : StorSentPort;
+		if( _clientState != CmdLine )
+			_clientState = get ? RetrSentPort : StorSentPort;
 	}
 	else
 	{
 		_dataPort = AllocNextEphemeralPort();
-		ListenForDataSocket();
+		if( !ListenForDataSocket() )
+		{
+			_lastReplyCode = 425;
+			CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), "Could not open local listening socket");
+			_clientState = CmdLine;
+			return;
+		}
 		if( get )
 			SendCommandWithState("RETR", _activeTransfer.serverFile, RetrSentActive);
 		else
@@ -1341,6 +1467,7 @@ void FtpTransport::ProcessSocketInput()
 
 	CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), buf);
 	AppendReplyLine(buf);
+	TouchScenarioActivity();
 
 	if( strlen(buf) < 3 )
 		return;
@@ -1540,10 +1667,11 @@ bool FtpTransport::ParsePASVResponse(char *pos)
 
 bool FtpTransport::ReadFileList()
 {
-	uint8_t done = 0;
+	TransferResult_t result = TransferInProgress;
 	int bytes_read;
 	char line[UI_LINE_MAX];
 	unsigned line_len = 0;
+	clockTicks_t last_progress = TIMER_GET_CURRENT();
 
 	if( _dataSocket == NULL )
 	{
@@ -1555,12 +1683,12 @@ bool FtpTransport::ReadFileList()
 	_remoteList->SetFreeBytes(-1);
 	_remoteList->Add("..", true, true, 0, "");
 
-	while( !done )
+	while( result == TransferInProgress )
 	{
 		CheckAbortKey();
 		if( _ctrlBreakDetected )
 		{
-			done = 4;
+			result = TransferAborted;
 			break;
 		}
 
@@ -1569,16 +1697,22 @@ bool FtpTransport::ReadFileList()
 		Tcp::drivePackets();
 
 		if( _dataSocket->isRemoteClosed() )
-			done = 1;
+		{
+			TouchScenarioActivity();
+			result = TransferCompleted;
+		}
 
 		while( (bytes_read = _dataSocket->recv(_fileBuffer, _fileBufferSize - 1)) != 0 )
 		{
 			if( bytes_read < 0 )
 			{
-				done = 2;
+				result = TransferSocketError;
 				break;
 			}
 
+			last_progress = TIMER_GET_CURRENT();
+
+			TouchScenarioActivity();
 			for( int i = 0; i < bytes_read; i++ )
 			{
 				char ch = (char)_fileBuffer[i];
@@ -1598,6 +1732,13 @@ bool FtpTransport::ReadFileList()
 					line[line_len++] = ch;
 			}
 		}
+
+		if( result == TransferInProgress &&
+			IsIdleTimedOut(last_progress, _timeouts.dataIdle, "Listing timed out waiting for more data") )
+		{
+			result = TransferTimedOut;
+			break;
+		}
 	}
 
 	if( line_len > 0 )
@@ -1609,14 +1750,7 @@ bool FtpTransport::ReadFileList()
 	_remoteList->UpdateEncoding();
 
 	CloseAndFreeDataSocket();
-
-	switch( done )
-	{
-	case 2: SetStatus('E', "Listing aborted due to socket error"); break;
-	case 4: SetStatus('W', "Listing aborted with Ctrl-Break"); break;
-	}
-
-	return done == 1;
+	return FinalizeTransfer(TransferActionList, result);
 }
 
 static uint32_t ComputeRate(uint32_t bytes, uint32_t elapsed)
@@ -1641,12 +1775,14 @@ static uint32_t ComputeRate(uint32_t bytes, uint32_t elapsed)
 bool FtpTransport::ReceiveFile()
 {
 	char *target_filename = _activeTransfer.localFile;
+	char status_detail[SERVERFILE_MAX_LEN];
 	uint32_t total_received = 0;
 	uint16_t bytes_read = 0;
 	uint16_t bytes_to_read = _recvFileBufSize;
 	clockTicks_t last_tick = 0;
 	uint32_t last_bytes = 0;
 	int rc;
+	TransferResult_t result = TransferInProgress;
 
 	if( _dataSocket == NULL )
 	{
@@ -1655,6 +1791,8 @@ bool FtpTransport::ReceiveFile()
 	}
 	if( *target_filename == '\0' )
 		target_filename = _activeTransfer.serverFile;
+
+	CopyTrunc(status_detail, sizeof(status_detail), target_filename);
 
 	FILE *target_file = fopen(target_filename, "wb");
 	if( target_file == NULL )
@@ -1666,14 +1804,14 @@ bool FtpTransport::ReceiveFile()
 	}
 
 	clockTicks_t start = TIMER_GET_CURRENT();
+	clockTicks_t last_progress = start;
 
-	int done = 0;
-	while( !done )
+	while( result == TransferInProgress )
 	{
 		CheckAbortKey();
 		if( _ctrlBreakDetected )
 		{
-			done = 4;
+			result = TransferAborted;
 			break;
 		}
 
@@ -1682,60 +1820,65 @@ bool FtpTransport::ReceiveFile()
 		Tcp::drivePackets();
 
 		if( _dataSocket->isRemoteClosed() )
-			done = 1;
+		{
+			TouchScenarioActivity();
+			result = TransferCompleted;
+		}
 
 		int16_t recv_rc;
 		while( (recv_rc = _dataSocket->recv(_fileBuffer + bytes_read, bytes_to_read)) != 0 )
 		{
 			if( recv_rc < 0 )
 			{
-				done = 2;
+				result = TransferSocketError;
 				break;
 			}
 
-			if( recv_rc > 0 )
+			TouchScenarioActivity();
+			last_progress = TIMER_GET_CURRENT();
+			total_received += recv_rc;
+			bytes_read += recv_rc;
+			bytes_to_read -= recv_rc;
+
+			if( bytes_to_read == 0 )
 			{
-				total_received += recv_rc;
-				bytes_read += recv_rc;
-				bytes_to_read -= recv_rc;
-
-				if( bytes_to_read == 0 )
+				rc = fwrite(_fileBuffer, bytes_read, 1, target_file);
+				if( rc != 1 )
 				{
-					rc = fwrite(_fileBuffer, bytes_read, 1, target_file);
-					if( rc != 1 )
-						done = 3;
-
-					bytes_to_read = _recvFileBufSize;
-					bytes_read = 0;
-
-					if( ShouldUpdateProgress(last_tick, last_bytes, total_received) )
-						SetTransferProgress(true, target_filename, total_received, _activeTransfer.totalBytes);
+					result = TransferFileError;
+					break;
 				}
+
+				bytes_to_read = _recvFileBufSize;
+				bytes_read = 0;
+
+				if( ShouldUpdateProgress(last_tick, last_bytes, total_received) )
+					SetTransferProgress(true, target_filename, total_received, _activeTransfer.totalBytes);
 			}
+		}
+
+		if( result == TransferInProgress &&
+			IsIdleTimedOut(last_progress, _timeouts.dataIdle, "Transfer timed out waiting for more data") )
+		{
+			result = TransferTimedOut;
+			break;
 		}
 	}
 
-	if( bytes_read )
+	if( result == TransferCompleted && bytes_read )
 	{
 		rc = fwrite(_fileBuffer, bytes_read, 1, target_file);
 		if( rc != 1 )
-			done = 3;
+			result = TransferFileError;
 	}
 
 	if( total_received > 0 )
 		SetTransferProgress(true, target_filename, total_received, _activeTransfer.totalBytes);
 
-	switch( done )
-	{
-	case 2: SetStatus('W', "Data socket closed early - close reason: %d", _dataSocket->getCloseReason()); break;
-	case 3: SetStatus('E', "Error writing to file: %s", target_filename); break;
-	case 4: SetStatus('W', "Xfer aborted due to Ctrl-Break"); break;
-	}
-
 	fclose(target_file);
 	CloseAndFreeDataSocket();
 
-	if( done == 1 )
+	if( result == TransferCompleted )
 	{
 		uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
 		uint32_t rate = ComputeRate(total_received, elapsed);
@@ -1748,21 +1891,25 @@ bool FtpTransport::ReceiveFile()
 	}
 	ClearTransferContext();
 
-	return done == 1;
+	return FinalizeTransfer(TransferActionGet, result, status_detail);
 }
 
 bool FtpTransport::SendFile()
 {
+	char status_detail[LOCALFILE_MAX_LEN];
 	uint32_t total_sent = 0;
 	clockTicks_t last_tick = 0;
 	uint32_t last_bytes = 0;
 	DataBuf *buf = NULL;
+	TransferResult_t result = TransferInProgress;
 
 	if( _dataSocket == NULL )
 	{
 		ClearTransferContext();
 		return false;
 	}
+
+	CopyTrunc(status_detail, sizeof(status_detail), _activeTransfer.localFile);
 
 	FILE *source_file = fopen(_activeTransfer.localFile, "rb");
 	if( source_file == NULL )
@@ -1775,14 +1922,14 @@ bool FtpTransport::SendFile()
 
 	setvbuf(source_file, (char *)_fileBuffer, _IOFBF, _sendFileBufSize);
 	clockTicks_t start = TIMER_GET_CURRENT();
+	clockTicks_t last_progress = start;
 
-	int done = 0;
-	while( !done )
+	while( result == TransferInProgress )
 	{
 		CheckAbortKey();
 		if( _ctrlBreakDetected )
 		{
-			done = 4;
+			result = TransferAborted;
 			break;
 		}
 
@@ -1792,7 +1939,8 @@ bool FtpTransport::SendFile()
 
 		if( _dataSocket->isRemoteClosed() )
 		{
-			done = 2;
+			TouchScenarioActivity();
+			result = TransferSocketError;
 			break;
 		}
 
@@ -1803,7 +1951,7 @@ bool FtpTransport::SendFile()
 			CheckAbortKey();
 			if( _ctrlBreakDetected )
 			{
-				done = 4;
+				result = TransferAborted;
 				break;
 			}
 
@@ -1817,10 +1965,14 @@ bool FtpTransport::SendFile()
 				if( bytes_to_send == 0 )
 				{
 					TcpBuffer::returnXmitBuf((TcpBuffer *)buf);
+					buf = NULL;
 					if( feof(source_file) )
-						done = 1;
-					else if( ferror(source_file) )
-						done = 3;
+					{
+						result = TransferCompleted;
+						break;
+					}
+					if( ferror(source_file) )
+						result = TransferFileError;
 					break;
 				}
 				buf->b.dataLen = bytes_to_send;
@@ -1828,10 +1980,12 @@ bool FtpTransport::SendFile()
 
 			if( _dataSocket->enqueue(&buf->b) )
 			{
-				done = 2;
+				result = TransferSocketError;
 				break;
 			}
 
+			last_progress = TIMER_GET_CURRENT();
+			TouchScenarioActivity();
 			total_sent += buf->b.dataLen;
 			PACKET_PROCESS_MULT(5);
 			Tcp::drivePackets();
@@ -1842,7 +1996,7 @@ bool FtpTransport::SendFile()
 			buf = NULL;
 		}
 
-		if( buf == NULL )
+		if( buf == NULL && result == TransferInProgress )
 		{
 			buf = (DataBuf *)TcpBuffer::getXmitBuf();
 			if( buf != NULL )
@@ -1851,31 +2005,38 @@ bool FtpTransport::SendFile()
 				if( bytes_to_send == 0 )
 				{
 					TcpBuffer::returnXmitBuf((TcpBuffer *)buf);
+					buf = NULL;
 					if( feof(source_file) )
-						done = 1;
+						result = TransferCompleted;
 					else if( ferror(source_file) )
-						done = 3;
+						result = TransferFileError;
 				}
 				else
 					buf->b.dataLen = bytes_to_send;
 			}
 		}
+
+		if( result == TransferInProgress &&
+			IsIdleTimedOut(last_progress, _timeouts.dataIdle, "Transfer timed out waiting for send progress") )
+		{
+			result = TransferTimedOut;
+			break;
+		}
+	}
+
+	if( buf != NULL )
+	{
+		TcpBuffer::returnXmitBuf((TcpBuffer *)buf);
+		buf = NULL;
 	}
 
 	if( total_sent > 0 )
 		SetTransferProgress(false, _activeTransfer.localFile, total_sent, _activeTransfer.totalBytes);
 
-	switch( done )
-	{
-	case 2: SetStatus('W', "Data socket closed early - close reason: %d", _dataSocket->getCloseReason()); break;
-	case 3: SetStatus('E', "Xfer aborted due to filesystem error"); break;
-	case 4: SetStatus('W', "Xfer aborted due to Ctrl-Break"); break;
-	}
-
 	fclose(source_file);
 	CloseAndFreeDataSocket();
 
-	if( done == 1 )
+	if( result == TransferCompleted )
 	{
 		uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
 		uint32_t rate = ComputeRate(total_sent, elapsed);
@@ -1888,7 +2049,7 @@ bool FtpTransport::SendFile()
 	}
 	ClearTransferContext();
 
-	return done == 1;
+	return FinalizeTransfer(TransferActionPut, result, status_detail);
 }
 
 bool FtpTransport::TryParseUnixListLine(char *line, char *nameOut, int nameOutSize, bool &isDir, uint32_t &sizeOut, char *modifyOut, int modifyOutSize)

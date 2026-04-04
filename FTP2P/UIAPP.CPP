@@ -790,7 +790,9 @@ void UiApp::CopySelectedItems()
 			g_RemoteList.Invalidate();
 	}
 
-	SetStatusText(ok_count == count ? 'I' : 'W', "Copied %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
+	char sizebuf[32];
+	FormatSize(sizebuf, sizeof(sizebuf), ok_bytes);
+	SetStatusText(ok_count == count ? 'I' : 'W', "Copied %d/%d files (%s)", ok_count, count, sizebuf);
 }
 
 void UiApp::CopyCurrentItem()

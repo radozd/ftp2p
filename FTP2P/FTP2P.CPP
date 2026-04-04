@@ -188,7 +188,7 @@ static uint16_t g_ScreenRows = 25, g_ScreenCols = 80;
 /* ------------------------------------------------------------------------- */
 #include "UILIST.CPP"
 
-#define UI_MAX_ITEMS          (150)
+#define UI_MAX_ITEMS          (400)
 static UiList g_RemoteList(UI_MAX_ITEMS, false);
 static UiList g_LocalList(UI_MAX_ITEMS, true);
 /* ------------------------------------------------------------------------- */
@@ -222,10 +222,19 @@ int main(int argc, char *argv[])
 	if( !ParseArgs(argc, argv) )
 	{
 		printf("Usage: FTP2P <host[:port]> [-u user] [-p pass] [-no-utf8]\n");
-		printf("  <host[:port]>  FTP server name or IP address\n");
-		printf("  -u user        User name\n");
-		printf("  -p pass        Password\n");
-		printf("  -no-utf8       Disable UTF-8 file name conversion\n");
+		printf("  <host[:port]> FTP server name or IP address\n");
+		printf("  -u user       User name\n");
+		printf("  -p pass       Password\n");
+		printf("  -no-utf8      Disable UTF-8 file name conversion\n");
+		printf("\n");
+		printf("Dual-pane MS-DOS FTP client: left=remote, right=local.\n");
+		printf("Ops: cd/get/put/rename/mkdir/delete, multi-file copy.\n");
+		printf("\n");
+		printf("Keys: Tab panel, Enter open, Esc abort, F10 quit\n");
+		printf("      Up/Down/PgUp/PgDn/Home/End move\n");
+		printf("      Ins/Space mark, Gray +/-/* select\n");
+		printf("      F5 copy, F6 rename, F7 mkdir, F8 delete\n");
+		printf("      F9 overwrite policy: ASK/SKIP/OVRW\n");
 		return 1;
 	}
 
