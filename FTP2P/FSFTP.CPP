@@ -1681,7 +1681,7 @@ bool FtpTransport::ReadFileList()
 
 	_remoteList->Clear();
 	_remoteList->SetFreeBytes(-1);
-	_remoteList->Add("..", true, true, 0, "");
+	_remoteList->Add("..", 'p', 0, "");
 
 	while( result == TransferInProgress )
 	{
@@ -2230,5 +2230,5 @@ void FtpTransport::ParseListLine(char *line)
 	}
 
 	if( !IsDots(name) )
-		_remoteList->Add(name, is_dir, false, size, modif);
+		_remoteList->Add(name, is_dir ? 'd':'f', size, modif);
 }

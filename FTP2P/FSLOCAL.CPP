@@ -118,7 +118,7 @@ bool LocalFsTransport::ListCwd()
 	}
 
 	struct find_t ff;
-	_localList->Add("..", true, true, 0, "");
+	_localList->Add("..", 'p', 0, "");
 
 	int rc = _dos_findfirst("*.*", _A_NORMAL | _A_RDONLY | _A_HIDDEN | _A_SYSTEM | _A_SUBDIR | _A_ARCH, &ff);
 	while( rc == 0 )
@@ -128,7 +128,7 @@ bool LocalFsTransport::ListCwd()
 			char mod[32];
 			DosDateTimeToString(mod, sizeof(mod), ff.wr_date, ff.wr_time);
 
-			UiEntry *e = _localList->Add(ff.name, (ff.attrib & _A_SUBDIR) != 0, false, (uint32_t)ff.size, mod);
+			UiEntry *e = _localList->Add(ff.name, (ff.attrib & _A_SUBDIR) != 0 ? 'd':'f', (uint32_t)ff.size, mod);
 			if( !e )
 				break;
 		}

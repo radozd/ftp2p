@@ -188,7 +188,7 @@ static uint16_t g_ScreenRows = 25, g_ScreenCols = 80;
 /* ------------------------------------------------------------------------- */
 #include "UILIST.CPP"
 
-#define UI_MAX_ITEMS          (400)
+#define UI_MAX_ITEMS (1000)
 static UiList g_RemoteList(UI_MAX_ITEMS, false);
 static UiList g_LocalList(UI_MAX_ITEMS, true);
 /* ------------------------------------------------------------------------- */

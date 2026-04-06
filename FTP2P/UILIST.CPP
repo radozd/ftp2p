@@ -18,16 +18,15 @@
 	along with FTP2P. If not, see <https://www.gnu.org/licenses/>.
 */
 
-#define UI_NAME_MAX           (128)
+#define UI_NAME_MAX     (128)
+#define	NAME_POOL_SIZE  (64000u)
 
 typedef struct
 {
-	char name[UI_NAME_MAX];
+	char *name;
 	char modif[20];
 	uint32_t size;
-	bool isDir;
-	bool isParent;
-	bool selected;
+	char kind;   /* 'p' parent, 'd' dir, 'f' file, 'F' selected file */
 } UiEntry;
 
 class UiList
@@ -36,7 +35,7 @@ public:
 	UiList(int cap, bool dosNames=false);
 	~UiList();
 
-	bool Ok() const { return _items != NULL; }
+	bool Ok() const { return _items != NULL && _namePool != NULL; }
 	void Clear();
 	void Sort();
 
@@ -52,7 +51,7 @@ public:
 
 	void UpdateEncoding();
 	
-	UiEntry *Add(const char *name, bool isDir, bool isParent, uint32_t size, const char *modif);
+	UiEntry *Add(const char *name, char kind, uint32_t size, const char *modif);
 	UiEntry *GetCurrent();
 	UiEntry *GetFromTop(int idx);
 	UiEntry *FindByName(const char *name);
@@ -87,6 +86,8 @@ private:
 	bool _truncated;
 	char _cwd[128];
 	UiEntry *_items;
+	char *_namePool;
+	uint16_t _namePoolUsed;
 	int _count;
 	int _capacity;
 	int _top;
@@ -96,6 +97,7 @@ private:
 	__int64 _freeBytes;
 	bool _needRefresh;
 
+	char *AllocName(const char *name);
 	static int EntryCmp(const void *a, const void *b);
 };
 
@@ -109,6 +111,8 @@ UiList::UiList(int cap, bool dosNames)
 	_truncated = false;
 	_needRefresh = true;
 	_items = NULL;
+	_namePool = NULL;
+	_namePoolUsed = 0;
 	_cwd[0] = '\0';
 	_pendingSelection[0] = '\0';
 	_fallbackSelectionIndex = -1;
@@ -119,13 +123,18 @@ UiList::UiList(int cap, bool dosNames)
 
 	_capacity = cap;
 	_items = (UiEntry *)calloc((size_t)cap, sizeof(UiEntry));
+	_namePool = (char *)malloc(NAME_POOL_SIZE);
 }
 
 UiList::~UiList()
 {
 	if( _items )
 		free(_items);
+	if( _namePool )
+		free(_namePool);
 	_items = NULL;
+	_namePool = NULL;
+	_namePoolUsed = 0;
 	_capacity = 0;
 	_count = 0;
 	_sel = 0;
@@ -157,7 +166,26 @@ void UiList::Clear()
 	_sel = 0;
 	_top = 0;
 	_truncated = false;
+	_namePoolUsed = 0;
 	_fallbackSelectionIndex = -1;
+}
+
+char *UiList::AllocName(const char *name)
+{
+	if( _namePool == NULL )
+		return NULL;
+
+	if( name == NULL )
+		name = "";
+
+	size_t need = strlen(name) + 1u;
+	if( need > (size_t)(NAME_POOL_SIZE - _namePoolUsed) )
+		return NULL;
+
+	char *dst = _namePool + _namePoolUsed;
+	memcpy(dst, name, need);
+	_namePoolUsed = (uint16_t)(_namePoolUsed + (uint16_t)need);
+	return dst;
 }
 
 int UiList::EntryCmp(const void *a, const void *b)
@@ -165,10 +193,14 @@ int UiList::EntryCmp(const void *a, const void *b)
 	const UiEntry *ea = (const UiEntry *)a;
 	const UiEntry *eb = (const UiEntry *)b;
 
-	if( ea->isParent != eb->isParent )
-		return ea->isParent ? -1 : 1;
-	if( ea->isDir != eb->isDir )
-		return ea->isDir ? -1 : 1;
+	if( ea->kind != eb->kind )
+	{
+		if( ea->kind == 'p' ) return -1;
+		if( eb->kind == 'p' ) return 1;
+
+		if( ea->kind == 'd' ) return -1;
+		if( eb->kind == 'd' ) return 1;
+	}
 
 	int rc = stricmp(ea->name, eb->name);
 	if( rc != 0 )
@@ -213,7 +245,7 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 	if( !e )
 		return;
 
-	if( e->isParent )
+	if( e->kind == 'p' )
 	{
 		strcpy(dst, "[..]");
 		return;
@@ -227,7 +259,7 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 		name = tmp;
 	}
 
-	if( e->isDir )
+	if( e->kind == 'd' )
 	{
 		dst[0] = '[';
 		CropRight(dst + 1, maxw - 2, name);
@@ -238,7 +270,7 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 		
 	if( _dosNames )
 	{
-		if( e->isDir )
+		if( e->kind == 'd' )
 			StrToUpper(dst);
 		else
 			StrToLower(dst);
@@ -251,7 +283,7 @@ void UiList::PrintStats(char *dst, int maxw, UiEntry *e)
 		return;
 	dst[0] = '\0';
 
-	if( e == NULL || e->isParent || e->isDir )
+	if( e == NULL || e->kind == 'p' || e->kind == 'd' )
 		return;
 
 	char sizebuf[32];
@@ -264,7 +296,7 @@ void UiList::PrintStats(char *dst, int maxw, UiEntry *e)
 	SprintfTrunc(dst, maxw, "%s%*s%s", sizebuf, spaces, "", e->modif);
 }
 
-UiEntry *UiList::Add(const char *name, bool isDir, bool isParent, uint32_t size, const char *modif)
+UiEntry *UiList::Add(const char *name, char kind, uint32_t size, const char *modif)
 {
 	if( _items == NULL )
 		return NULL;
@@ -274,13 +306,18 @@ UiEntry *UiList::Add(const char *name, bool isDir, bool isParent, uint32_t size,
 		return NULL;
 	}
 
+	char *stored = AllocName(name);
+	if( stored == NULL )
+	{
+		_truncated = true;
+		return NULL;
+	}
+
 	UiEntry *e = &_items[_count];
-	CopyTrunc(e->name, sizeof(e->name), name);
-	e->isDir = isDir;
-	e->isParent = isParent;
+	e->name = stored;
+	e->kind = kind;
 	e->size = size;
 	CopyTrunc(e->modif, sizeof(e->modif), modif);
-	e->selected = false;
 
 	_count++;
 	return e;
@@ -358,23 +395,28 @@ bool UiList::MoveSel(int delta)
 	if( _count <= 0 )
 		return false;
 
-	int oldSel = _sel;
+	int old = _sel;
 	_sel += delta;
 	if( _sel < 0 )
 		_sel = 0;
 	if( _sel >= _count )
 		_sel = _count - 1;
 
-	return _sel != oldSel;
+	return _sel != old;
 }
 
 bool UiList::ToggleCurrentSelection(bool moveAfter)
 {
 	UiEntry *e = GetCurrent();
-	if( e == NULL || e->isParent || e->isDir )
+	if( e == NULL )
 		return false;
 
-	e->selected = !e->selected;
+	if( e->kind == 'f' )
+		e->kind = 'F';
+	else if( e->kind == 'F' )
+		e->kind = 'f';
+	else
+		return false;
 
 	if( moveAfter && _sel < _count - 1 )
 		_sel++;
@@ -385,15 +427,18 @@ bool UiList::ToggleCurrentSelection(bool moveAfter)
 void UiList::ClearSelectionMarks()
 {
 	for( int i = 0; i < _count; i++ )
-		_items[i].selected = false;
+	{
+		if( _items[i].kind == 'F' )
+			_items[i].kind = 'f';
+	}
 }
 
 void UiList::SelectAllFiles()
 {
 	for( int i = 0; i < _count; i++ )
 	{
-		if( !_items[i].isParent && !_items[i].isDir )
-			_items[i].selected = true;
+		if( _items[i].kind == 'f' )
+			_items[i].kind = 'F';
 	}
 }
 
@@ -401,8 +446,10 @@ void UiList::InvertFileSelection()
 {
 	for( int i = 0; i < _count; i++ )
 	{
-		if( !_items[i].isParent && !_items[i].isDir )
-			_items[i].selected = !_items[i].selected;
+		if( _items[i].kind == 'f' )
+			_items[i].kind = 'F';
+		else if( _items[i].kind == 'F' )
+			_items[i].kind = 'f';
 	}
 }
 
@@ -412,7 +459,7 @@ int UiList::SelectedFileCount() const
 
 	for( int i = 0; i < _count; i++ )
 	{
-		if( _items[i].selected && !_items[i].isParent && !_items[i].isDir )
+		if( _items[i].kind == 'F')
 			n++;
 	}
 
@@ -425,7 +472,7 @@ uint32_t UiList::SelectedFileBytes() const
 
 	for( int i = 0; i < _count; i++ )
 	{
-		if( _items[i].selected && !_items[i].isParent && !_items[i].isDir )
+		if( _items[i].kind == 'F')
 			total += _items[i].size;
 	}
 
@@ -441,7 +488,7 @@ int UiList::AllSelected(UiEntry **items, int maxItems)
 
 	for( int i = 0; i < _count && n < maxItems; i++ )
 	{
-		if( _items[i].selected && !_items[i].isParent && !_items[i].isDir )
+		if( _items[i].kind == 'F')
 			items[n++] = &_items[i];
 	}
 
@@ -471,21 +518,21 @@ bool UiList::Refresh(bool (*reloadFunc)())
 	if( reloadFunc == NULL )
 		return false;
 
-	char currentName[UI_NAME_MAX];
-	currentName[0] = '\0';
+	char current[UI_NAME_MAX];
+	current[0] = '\0';
 
 	UiEntry *cur = GetCurrent();
 	if( cur )
 	{
-		if( cur->isParent )
-			GetLastPathComponent(currentName, sizeof(currentName), _cwd);
+		if( cur->kind == 'p' )
+			GetLastPathComponent(current, sizeof(current), _cwd);
 		else
-			CopyTrunc(currentName, sizeof(currentName), cur->name);
+			CopyTrunc(current, sizeof(current), cur->name);
 	}
 
-	int fallbackIndex = _fallbackSelectionIndex;
-	if( fallbackIndex < 0 )
-		fallbackIndex = _sel;
+	int fallback = _fallbackSelectionIndex;
+	if( fallback < 0 )
+		fallback = _sel;
 
 	if( !reloadFunc() )
 		return false;
@@ -503,7 +550,7 @@ bool UiList::Refresh(bool (*reloadFunc)())
 		ClearPendingSelection();
 	}
 
-	if( currentName[0] && SelectByName(currentName) )
+	if( current[0] && SelectByName(current) )
 	{
 		_fallbackSelectionIndex = -1;
 		return true;
@@ -517,11 +564,11 @@ bool UiList::Refresh(bool (*reloadFunc)())
 		return true;
 	}
 
-	if( fallbackIndex < 0 )
-		fallbackIndex = 0;
-	if( fallbackIndex >= _count )
-		fallbackIndex = _count - 1;
-	_sel = fallbackIndex;
+	if( fallback < 0 )
+		fallback = 0;
+	if( fallback >= _count )
+		fallback = _count - 1;
+	_sel = fallback;
 	_fallbackSelectionIndex = -1;
 	return true;
 }
@@ -531,20 +578,20 @@ void UiList::UpdateEncoding()
 	if( _count < 2 )
 		return;
 
-	int cp850Count = 0;
-	int cp866Count = 0;
+	int cp850 = 0;
+	int cp866 = 0;
 
 	for( int i = 0; i < _count; i++ )
 	{
 		UiEntry *e = &_items[i];
-		if( e != NULL && !e->isParent )
-			CountDetectedCodePageChars(e->name, cp850Count, cp866Count);
+		if( e != NULL && e->kind != 'p' )
+			CountDetectedCodePageChars(e->name, cp850, cp866);
 	}
 
-	if( cp866Count > cp850Count )
+	if( cp866 > cp850 )
 		g_Encoding = OEM_CP866;
-	else if( cp850Count > cp866Count )
+	else if( cp850 > cp866 )
 		g_Encoding = OEM_CP850;
-	else if( cp850Count == 0 && cp866Count == 0 )
+	else if( cp850 == 0 && cp866 == 0 )
 		g_Encoding = OEM_ASCII;
 }

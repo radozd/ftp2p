@@ -693,7 +693,7 @@ bool UiApp::ConfirmOverwrite(bool remote, const char *name)
 bool UiApp::PanelHasName(bool remote, const char *name) const
 {
 	UiEntry *e = remote ? g_RemoteList.FindByName(name) : g_LocalList.FindByName(name);
-	return e != NULL && !e->isParent;
+	return e != NULL && e->kind != 'p';
 }
 
 void UiApp::DoGet()
@@ -701,7 +701,7 @@ void UiApp::DoGet()
 	FtpTransport::_ctrlBreakDetected = false;
 
 	UiEntry *e = g_RemoteList.GetCurrent();
-	if( !e || e->isDir || e->isParent )
+	if( !e || e->kind == 'p' || e->kind == 'd' )
 		return;
 
 	char localFile[LOCALFILE_MAX_LEN];
@@ -723,7 +723,7 @@ void UiApp::DoPut()
 	FtpTransport::_ctrlBreakDetected = false;
 
 	UiEntry *e = g_LocalList.GetCurrent();
-	if( !e || e->isDir || e->isParent )
+	if( !e || e->kind == 'p' || e->kind == 'd' )
 		return;
 
 	char remote_name[UI_NAME_MAX * 3];
@@ -752,7 +752,7 @@ void UiApp::CopySelectedItems()
 	UiEntry **items = (UiEntry **)malloc((size_t)selectedCount * sizeof(UiEntry *));
 	if( items == NULL )
 	{
-		SetStatusText('E', "Not enough memory");
+		SetStatusText('E', "Not enough free memory");
 		return;
 	}
 
@@ -783,7 +783,8 @@ void UiApp::CopySelectedItems()
 
 		if( ok )
 		{
-			e->selected = false;
+			if( e->kind == 'F' )
+				e->kind = 'f';
 			ok_count++;
 			ok_bytes += e->size;
 		}
@@ -855,7 +856,7 @@ void UiApp::EnterCurrentItem()
 	if( !e )
 		return;
 
-	if( e->isParent )
+	if( e->kind == 'p' )
 	{
 		list->SetPendingSelectionFromCwdTail();
 		bool ok = IsRemoteActive() ? g_ftp.ChangeToParentDir() : g_local.ChangeToParentDir();
@@ -866,7 +867,7 @@ void UiApp::EnterCurrentItem()
 		return;
 	}
 
-	if( e->isDir )
+	if( e->kind == 'd' )
 	{
 		bool ok = IsRemoteActive() ? g_ftp.ChangeWorkingDir(e->name) : g_local.ChangeWorkingDir(e->name);
 		if( ok )
@@ -892,7 +893,7 @@ void UiApp::DeleteSelectedItems()
 	UiEntry **items = (UiEntry **)malloc((size_t)selectedCount * sizeof(UiEntry *));
 	if( items == NULL )
 	{
-		SetStatusText('E', "Not enough memory");
+		SetStatusText('E', "Not enough free memory");
 		return;
 	}
 
@@ -909,7 +910,8 @@ void UiApp::DeleteSelectedItems()
 		bool ok = IsRemoteActive() ? g_ftp.DeleteFile(e->name) : g_local.DeleteFile(e->name);
 		if( ok )
 		{
-			e->selected = false;
+			if( e->kind == 'F' )
+				e->kind = 'f';
 			ok_count++;
 			ok_bytes += e->size;
 		}
@@ -938,16 +940,16 @@ void UiApp::DeleteCurrentItem()
 	}
 
 	UiEntry *e = list->GetCurrent();
-	if( !e || e->isParent )
+	if( !e || e->kind == 'p' )
 		return;
 
 	char namebuf[UI_NAME_MAX + 8];
 	list->PrintName(namebuf, sizeof(namebuf), e);
-	if( !AskYesNo("Delete %s %s '%s'?", IsRemoteActive() ? "remote" : "local", e->isDir ? "directory" : "file", namebuf) )
+	if( !AskYesNo("Delete %s %s '%s'?", IsRemoteActive() ? "remote" : "local", e->kind == 'd' ? "directory" : "file", namebuf) )
 		return;
 
 	bool ok;
-	if( e->isDir )
+	if( e->kind == 'd' )
 		ok = IsRemoteActive() ? g_ftp.RemoveDir(e->name) : g_local.RemoveDir(e->name);
 	else
 		ok = IsRemoteActive() ? g_ftp.DeleteFile(e->name) : g_local.DeleteFile(e->name);
@@ -1016,7 +1018,7 @@ void UiApp::RenameCurrentItem()
 	}
 
 	UiEntry *e = list->GetCurrent();
-	if( !e || e->isParent )
+	if( !e || e->kind == 'p' )
 		return;
 
 	char old_name[UI_NAME_MAX];
@@ -1165,7 +1167,7 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 		lst->PrintName(namebuf, maxName, e);
 
 		bool is_current = active && e == cur;
-		bool is_marked = e != NULL && e->selected;
+		bool is_marked = e != NULL && e->kind == 'F';
 		uint8_t attr;
 		if( is_current && is_marked )
 			attr = UI_ATTR_MARKED_CURRENT;
@@ -1174,7 +1176,7 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 		else if( is_marked )
 			attr = UI_ATTR_MARKED;
 		else
-			attr = (e != NULL && e->isDir) ? UI_ATTR_DIRECTORY : UI_ATTR_NORMAL;
+			attr = e != NULL && e->kind == 'd' ? UI_ATTR_DIRECTORY : UI_ATTR_NORMAL;
 
 		WritePadAt(x + 1, y + 1 + row, namebuf, w - 2, attr);
 	}
