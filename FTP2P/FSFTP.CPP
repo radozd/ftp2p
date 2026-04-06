@@ -604,7 +604,7 @@ bool FtpTransport::FinalizeTransfer(TransferAction_t action, TransferResult_t re
 		break;
 
 	case TransferAborted:
-		SetStatus('W', "%s aborted with Ctrl-Break", actionText);
+		SetStatus('W', "%s cancelled by user", actionText);
 		break;
 
 	case TransferTimedOut:
@@ -1688,6 +1688,7 @@ bool FtpTransport::ReadFileList()
 		CheckAbortKey();
 		if( _ctrlBreakDetected )
 		{
+			SetStatus('W', "Cancelling...");
 			result = TransferAborted;
 			break;
 		}
@@ -1811,6 +1812,7 @@ bool FtpTransport::ReceiveFile()
 		CheckAbortKey();
 		if( _ctrlBreakDetected )
 		{
+			SetStatus('W', "Cancelling...");
 			result = TransferAborted;
 			break;
 		}
@@ -1852,7 +1854,7 @@ bool FtpTransport::ReceiveFile()
 				bytes_to_read = _recvFileBufSize;
 				bytes_read = 0;
 
-				if( ShouldUpdateProgress(last_tick, last_bytes, total_received) )
+				if( !_ctrlBreakDetected && ShouldUpdateProgress(last_tick, last_bytes, total_received) )
 					SetTransferProgress(true, target_filename, total_received, _activeTransfer.totalBytes);
 			}
 		}
@@ -1872,11 +1874,14 @@ bool FtpTransport::ReceiveFile()
 			result = TransferFileError;
 	}
 
-	if( total_received > 0 )
+	if( result == TransferCompleted && total_received > 0 )
 		SetTransferProgress(true, target_filename, total_received, _activeTransfer.totalBytes);
 
 	fclose(target_file);
 	CloseAndFreeDataSocket();
+
+	if( result != TransferCompleted )
+		remove(target_filename);
 
 	if( result == TransferCompleted )
 	{
@@ -1929,6 +1934,7 @@ bool FtpTransport::SendFile()
 		CheckAbortKey();
 		if( _ctrlBreakDetected )
 		{
+			SetStatus('W', "Cancelling...");
 			result = TransferAborted;
 			break;
 		}
@@ -1951,6 +1957,7 @@ bool FtpTransport::SendFile()
 			CheckAbortKey();
 			if( _ctrlBreakDetected )
 			{
+				SetStatus('W', "Cancelling...");
 				result = TransferAborted;
 				break;
 			}
@@ -1990,7 +1997,7 @@ bool FtpTransport::SendFile()
 			PACKET_PROCESS_MULT(5);
 			Tcp::drivePackets();
 
-			if( ShouldUpdateProgress(last_tick, last_bytes, total_sent) )
+			if( !_ctrlBreakDetected && ShouldUpdateProgress(last_tick, last_bytes, total_sent) )
 				SetTransferProgress(false, _activeTransfer.localFile, total_sent, _activeTransfer.totalBytes);
 
 			buf = NULL;
@@ -2030,7 +2037,7 @@ bool FtpTransport::SendFile()
 		buf = NULL;
 	}
 
-	if( total_sent > 0 )
+	if( result == TransferCompleted && total_sent > 0 )
 		SetTransferProgress(false, _activeTransfer.localFile, total_sent, _activeTransfer.totalBytes);
 
 	fclose(source_file);

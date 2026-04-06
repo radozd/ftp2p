@@ -698,6 +698,8 @@ bool UiApp::PanelHasName(bool remote, const char *name) const
 
 void UiApp::DoGet()
 {
+	FtpTransport::_ctrlBreakDetected = false;
+
 	UiEntry *e = g_RemoteList.GetCurrent();
 	if( !e || e->isDir || e->isParent )
 		return;
@@ -718,6 +720,8 @@ void UiApp::DoGet()
 
 void UiApp::DoPut()
 {
+	FtpTransport::_ctrlBreakDetected = false;
+
 	UiEntry *e = g_LocalList.GetCurrent();
 	if( !e || e->isDir || e->isParent )
 		return;
@@ -738,6 +742,8 @@ void UiApp::DoPut()
 
 void UiApp::CopySelectedItems()
 {
+	FtpTransport::_ctrlBreakDetected = false;
+
 	UiList *list = GetActiveList();
 	int selectedCount = list->SelectedFileCount();
 	if( selectedCount <= 0 )
@@ -756,6 +762,9 @@ void UiApp::CopySelectedItems()
 
 	for( int i = 0; i < count; i++ )
 	{
+		if( FtpTransport::_ctrlBreakDetected )
+			break;
+
 		UiEntry *e = items[i];
 		bool ok = false;
 
@@ -792,7 +801,10 @@ void UiApp::CopySelectedItems()
 
 	char sizebuf[32];
 	FormatSize(sizebuf, sizeof(sizebuf), ok_bytes);
-	SetStatusText(ok_count == count ? 'I' : 'W', "Copied %d/%d files (%s)", ok_count, count, sizebuf);
+	if( FtpTransport::_ctrlBreakDetected )
+		SetStatusText('W', "Copy cancelled: %d/%d files (%s)", ok_count, count, sizebuf);
+	else
+		SetStatusText(ok_count == count ? 'I' : 'W', "Copied %d/%d files (%s)", ok_count, count, sizebuf);
 }
 
 void UiApp::CopyCurrentItem()
@@ -867,6 +879,8 @@ void UiApp::EnterCurrentItem()
 
 void UiApp::DeleteSelectedItems()
 {
+	FtpTransport::_ctrlBreakDetected = false;
+
 	UiList *list = GetActiveList();
 	int selectedCount = list->SelectedFileCount();
 	if( selectedCount <= 0 )
@@ -888,6 +902,9 @@ void UiApp::DeleteSelectedItems()
 
 	for( int i = 0; i < count; i++ )
 	{
+		if( FtpTransport::_ctrlBreakDetected )
+			break;
+
 		UiEntry *e = items[i];
 		bool ok = IsRemoteActive() ? g_ftp.DeleteFile(e->name) : g_local.DeleteFile(e->name);
 		if( ok )
@@ -903,11 +920,16 @@ void UiApp::DeleteSelectedItems()
 	if( ok_count > 0 )
 		list->Invalidate();
 
-	SetStatusText(ok_count == count ? 'I' : 'W', "Deleted %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
+	if( FtpTransport::_ctrlBreakDetected )
+		SetStatusText('W', "Delete cancelled: %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
+	else
+		SetStatusText(ok_count == count ? 'I' : 'W', "Deleted %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
 }
 
 void UiApp::DeleteCurrentItem()
 {
+	FtpTransport::_ctrlBreakDetected = false;
+
 	UiList *list = GetActiveList();
 	if( list->SelectedFileCount() > 0 )
 	{
@@ -938,7 +960,10 @@ void UiApp::DeleteCurrentItem()
 	}
 	else
 	{
-		SetStatusText('E', "Delete failed: %s", namebuf);
+		if( FtpTransport::_ctrlBreakDetected )
+			SetStatusText('W', "Delete cancelled: %s", namebuf);
+		else
+			SetStatusText('E', "Delete failed: %s", namebuf);
 	}
 }
 
