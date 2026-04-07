@@ -2101,8 +2101,20 @@ bool FtpTransport::TryParseUnixListLine(char *line, char *nameOut, int nameOutSi
 	if( modifyOutSize > 0 )
 		SprintfTrunc(modifyOut, modifyOutSize, "%s %s %s", fields[5], fields[6], fields[7]);
 
-	char *name = strstr(line, fields[8]);
-	if( name == NULL )
+	char *name = line;
+	for( int i = 0; i < 8; i++ )
+	{
+		while( *name == ' ' || *name == '\t' )
+			name++;
+		if( *name == '\0' )
+			return false;
+		while( *name && *name != ' ' && *name != '\t' )
+			name++;
+	}
+	while( *name == ' ' || *name == '\t' )
+		name++;
+
+	if( *name == '\0' )
 		return false;
 
 	TrimRight(name);
@@ -2195,8 +2207,20 @@ bool FtpTransport::TryParseDosListLine(char *line, char *nameOut, int nameOutSiz
 	if( modifyOutSize > 0 )
 		SprintfTrunc(modifyOut, modifyOutSize, "%s %s", fields[0], fields[1]);
 
-	char *name = strstr(line, fields[3]);
-	if( name == NULL )
+	char *name = line;
+	for( int i = 0; i < 3; i++ )
+	{
+		while( *name == ' ' || *name == '\t' )
+			name++;
+		if( *name == '\0' )
+			return false;
+		while( *name && *name != ' ' && *name != '\t' )
+			name++;
+	}
+	while( *name == ' ' || *name == '\t' )
+		name++;
+
+	if( *name == '\0' )
 		return false;
 
 	for( int i = 0; name[i]; i++ )

@@ -131,8 +131,14 @@ void CropRight(char *dst, size_t len, const char *src)
 		return;
 	}
 
-	const char *dot = strrchr(src, '.');
-	if( dot == NULL || dot == src || dot[1] == '\0' )
+	size_t dot_pos = (size_t)-1;
+	for( int i = 0; i < n; i++ )
+	{
+		if( src[i] == '.' )
+			dot_pos = i;
+	}
+
+	if( dot_pos == (size_t)-1 || dot_pos == 0 || dot_pos >= n - 1 )
 	{
 		if( cap <= 3 )
 		{
@@ -148,19 +154,9 @@ void CropRight(char *dst, size_t len, const char *src)
 		return;
 	}
 
-	size_t ext_len = strlen(dot);
+	size_t ext_len = n - dot_pos;
 	if( ext_len > 8 )
 		ext_len = 8;
-
-	size_t baseLen = dot - src;
-	size_t maxBaseLen = cap - ext_len;
-
-	if( baseLen <= maxBaseLen )
-	{
-		CopyDataTrunc(dst, len, src, baseLen);
-		CopyDataTrunc(dst + baseLen, len - baseLen, dot, ext_len);
-		return;
-	}
 
 	if( cap <= ext_len + 3 )
 	{
@@ -173,7 +169,7 @@ void CropRight(char *dst, size_t len, const char *src)
 	dst[keep_len] = '.';
 	dst[keep_len + 1] = '.';
 	dst[keep_len + 2] = '.';
-	CopyDataTrunc(dst + keep_len + 3, len - keep_len - 3, dot, ext_len);
+	CopyDataTrunc(dst + keep_len + 3, len - keep_len - 3, src + dot_pos, ext_len);
 }
 
 static bool IsDots(const char *s)
@@ -291,11 +287,6 @@ void FormatSize(char *dst, size_t dstSize, __int64 bytes)
 static int KeyAscii(uint16_t key)
 {
 	return (int)(key & 0x00FF);
-}
-
-static bool IsEscKey(uint16_t key)
-{
-	return KeyAscii(key) == 27;
 }
 
 // Encoding

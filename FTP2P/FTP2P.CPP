@@ -188,7 +188,7 @@ static uint16_t g_ScreenRows = 25, g_ScreenCols = 80;
 /* ------------------------------------------------------------------------- */
 #include "UILIST.CPP"
 
-#define UI_MAX_ITEMS (1000)
+#define UI_MAX_ITEMS (2000)
 static UiList g_RemoteList(UI_MAX_ITEMS, false);
 static UiList g_LocalList(UI_MAX_ITEMS, true);
 /* ------------------------------------------------------------------------- */
@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
 		printf("Dual-pane MS-DOS FTP client: left=remote, right=local.\n");
 		printf("Ops: cd/get/put/rename/mkdir/delete, multi-file copy.\n");
 		printf("\n");
-		printf("Keys: Tab panel, Enter open, Esc abort, F10 quit\n");
+		printf("Keys: Tab panel, Enter open, Backspace up, Esc abort, F10 quit\n");
 		printf("      Up/Down/PgUp/PgDn/Home/End move\n");
 		printf("      Ins/Space mark, Gray +/-/* select\n");
 		printf("      F5 copy, F6 rename, F7 mkdir, F8 delete\n");

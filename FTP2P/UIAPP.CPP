@@ -278,6 +278,7 @@ private:
 	void DeleteSelectedItems();
 
 	bool RefreshPanel(bool remote);
+	void EnterUp();
 	void EnterCurrentItem();
 	void DeleteCurrentItem();
 	void MakeDirInCurrentPanel();
@@ -388,7 +389,10 @@ void UiApp::Loop()
 	while( 1 )
 	{
 		if( g_LocalList.NeedRefresh() )
-			RefreshPanel(false);
+		{
+			if( !RefreshPanel(false) )
+				SetStatusText('E', "Local refresh failed");
+		}
 		
 		if( g_RemoteList.NeedRefresh() )
 		{
@@ -416,6 +420,11 @@ void UiApp::Loop()
 		if( key == UI_KEY_TAB || ascii == 9 )
 		{
 			_activePanel = !_activePanel;
+			_needRedraw = true;
+		}
+		else if( ascii == 8 )
+		{
+			EnterUp();
 			_needRedraw = true;
 		}
 		else if( key == UI_KEY_ENTER || ascii == 13 )
@@ -845,8 +854,22 @@ bool UiApp::RefreshPanel(bool remote)
 	_needRedraw = true;
 
 	if( list->IsTruncated() )
-		SetStatusText('W', "LIST truncated: too many entries");
+		SetStatusText('W', "LIST truncated (%d): too many entries", list->Count());
 	return true;
+}
+
+void UiApp::EnterUp()
+{
+	UiList *list = GetActiveList();
+	list->SetPendingSelectionFromCwdTail();
+	bool ok = IsRemoteActive() ? g_ftp.ChangeToParentDir() : g_local.ChangeToParentDir();
+	if( ok )
+		list->Invalidate();
+	else
+	{
+		list->ClearPendingSelection();
+		SetStatusText('E', "%s cd .. failed", IsRemoteActive() ? "Remote" : "Local");
+	}
 }
 
 void UiApp::EnterCurrentItem()
@@ -858,12 +881,7 @@ void UiApp::EnterCurrentItem()
 
 	if( e->kind == 'p' )
 	{
-		list->SetPendingSelectionFromCwdTail();
-		bool ok = IsRemoteActive() ? g_ftp.ChangeToParentDir() : g_local.ChangeToParentDir();
-		if( ok )
-			list->Invalidate();
-		else
-			list->ClearPendingSelection();
+		EnterUp();
 		return;
 	}
 
@@ -874,6 +892,12 @@ void UiApp::EnterCurrentItem()
 		{
 			list->ResetSelection();
 			list->Invalidate();
+		}
+		else
+		{
+			char namebuf[UI_NAME_MAX + 8];
+			list->PrintName(namebuf, sizeof(namebuf), e);
+			SetStatusText('E', "%s enter failed: %s", IsRemoteActive() ? "Remote" : "Local", namebuf);
 		}
 	}
 }
