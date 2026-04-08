@@ -46,6 +46,8 @@
 #define UI_KEY_F9       0x4300
 #define UI_KEY_F10      0x4400
 
+#define UI_PANEL_MIN_WIDTH 20
+
 enum
 {
 	CH_UL    = 218, // ┌
@@ -60,7 +62,7 @@ enum
 	CH_SHADE = 176  // ░
 };
 
-typedef enum {
+enum {
 	EGA_BLACK          = 0x0,
 	EGA_BLUE           = 0x1,
 	EGA_GREEN          = 0x2,
@@ -77,7 +79,7 @@ typedef enum {
 	EGA_LIGHT_MAGENTA  = 0xD,
 	EGA_YELLOW         = 0xE,
 	EGA_WHITE          = 0xF
-} ega_color_t;
+};
 
 #define UI_ATTR(fg, bg) (((bg) << 4) | (fg))
 
@@ -243,23 +245,25 @@ public:
 	void Loop();
 
 private:
-	bool _activePanel;
+	bool _remoteActive;
+	bool _panelsRTL;
+	int _panelMid;
 	bool _screenReady;
 	bool _needRedraw;
 	char _lastStatus[160];
 	char _copyPolicy[5];
 	UiScreenSnapshot _screenSnapshot;
 	
-
 	void Redraw();
 
-	bool IsRemoteActive() const { return !_activePanel; }
-	UiList *GetActiveList() const { return IsRemoteActive() ? &g_RemoteList : &g_LocalList; }
+	bool IsRemoteActive() const { return _remoteActive; }
+	UiList *GetActiveList() const;
 
-	bool MoveActiveSelection(int delta);
-
+	bool IsShiftPressed() const;
 	uint16_t ReadKey();
 	void FlushKeys();
+
+	bool MovePanelSplit(int delta);
 
 	void PrintStatus();
 	bool AskYesNo(const char *fmt, ...);
@@ -296,7 +300,9 @@ private:
 
 UiApp::UiApp()
 {
-	_activePanel = false;
+	_remoteActive = true;
+	_panelsRTL = false;
+	_panelMid = 40;
 	_screenReady = false;
 	_needRedraw = true;
 	_lastStatus[0] = '\0';
@@ -307,29 +313,31 @@ bool UiApp::InitScreen()
 {
 	uint8_t screenMode = *((uint8_t far *)MK_FP(0x40, 0x49));
 	if( screenMode == 7 )
-		g_Screen = (uint8_t far *)MK_FP(0xb000, 0);
+		g_screen = (uint8_t far *)MK_FP(0xb000, 0);
 	else
-		g_Screen = (uint8_t far *)MK_FP(0xb800, 0);
+		g_screen = (uint8_t far *)MK_FP(0xb800, 0);
 
 	if( getEgaMemSize() == 0x10 )
 	{
-		g_ScreenCols = 80;
-		g_ScreenRows = 25;
+		g_screenCols = 80;
+		g_screenRows = 25;
 	}
 	else
 	{
-		g_ScreenCols = *((uint8_t far *)MK_FP(0x40, 0x4A));
-		g_ScreenRows = *((uint8_t far *)MK_FP(0x40, 0x84)) + 1;
+		g_screenCols = *((uint8_t far *)MK_FP(0x40, 0x4A));
+		g_screenRows = *((uint8_t far *)MK_FP(0x40, 0x84)) + 1;
 	}
 
-	if( g_ScreenCols < 80 || g_ScreenRows < 25 )
+	if( g_screenCols < 80 || g_screenRows < 25 )
 	{
-		printf("Unsupported text mode: %ux%u. Please use 80x25 or larger.\n", g_ScreenCols, g_ScreenRows);
+		printf("Unsupported text mode: %ux%u. Please use 80x25 or larger.\n", g_screenCols, g_screenRows);
 		return false;
 	}
 
+	_panelMid = g_screenCols / 2;
+
 	_screenReady = true;
-	_screenSnapshot.Capture(g_Screen, g_ScreenCols, g_ScreenRows);
+	_screenSnapshot.Capture(g_screen, g_screenCols, g_screenRows);
 	_screenSnapshot.HideCursor();
 	ClearScreen();
 	
@@ -338,21 +346,21 @@ bool UiApp::InitScreen()
 
 void UiApp::ClearScreen()
 {
-	if( !g_Screen )
+	if( !g_screen )
 		return;
 
-	int cells = g_ScreenRows * g_ScreenCols;
+	int cells = g_screenRows * g_screenCols;
 	for( int i = 0; i < cells; i++ )
 	{
-		g_Screen[i * 2]     = ' ';
-		g_Screen[i * 2 + 1] = UI_ATTR_NORMAL;
+		g_screen[i * 2]     = ' ';
+		g_screen[i * 2 + 1] = UI_ATTR_NORMAL;
 	}
 	gotoxy(1, 1);
 }
 
 void UiApp::Cleanup()
 {
-	_screenSnapshot.Restore(g_Screen);
+	_screenSnapshot.Restore(g_screen);
 }
 
 void UiApp::SetStatusText(char type, const char *fmt, ...)
@@ -381,20 +389,25 @@ void UiApp::SetStatusText(char type, const char *fmt, ...)
 	PrintStatus();
 }
 
+UiList *UiApp::GetActiveList() const
+{
+	return _remoteActive ? &g_remoteList : &g_localList;
+}
+
 void UiApp::Loop()
 {
-	g_LocalList.Invalidate();
-	g_RemoteList.Invalidate();
+	g_localList.Invalidate();
+	g_remoteList.Invalidate();
 
 	while( 1 )
 	{
-		if( g_LocalList.NeedRefresh() )
+		if( g_localList.NeedRefresh() )
 		{
 			if( !RefreshPanel(false) )
 				SetStatusText('E', "Local refresh failed");
 		}
 		
-		if( g_RemoteList.NeedRefresh() )
+		if( g_remoteList.NeedRefresh() )
 		{
 			if( !RefreshPanel(true) )
 				SetStatusText('E', "Remote refresh failed");
@@ -415,11 +428,15 @@ void UiApp::Loop()
 			break;
 		}
 
+		bool shift = IsShiftPressed();
 		int ascii = KeyAscii(key);
 
 		if( key == UI_KEY_TAB || ascii == 9 )
 		{
-			_activePanel = !_activePanel;
+			if( shift )
+				_panelsRTL = !_panelsRTL;
+			else
+				_remoteActive = !_remoteActive;
 			_needRedraw = true;
 		}
 		else if( ascii == 8 )
@@ -451,27 +468,33 @@ void UiApp::Loop()
 		}
 		else if( key == UI_KEY_UP )
 		{
-			_needRedraw = MoveActiveSelection(-1);
+			_needRedraw = GetActiveList()->MoveSel(-1);
 		}
 		else if( key == UI_KEY_DOWN )
 		{
-			_needRedraw = MoveActiveSelection(1);
+			_needRedraw = GetActiveList()->MoveSel(1);
 		}
 		else if( key == UI_KEY_PGUP || key == UI_KEY_LEFT )
 		{
-			_needRedraw = MoveActiveSelection(-(g_ScreenRows - 6));
+			if( shift && key == UI_KEY_LEFT )
+				_needRedraw = MovePanelSplit(-1);
+			else
+				_needRedraw = GetActiveList()->MoveSel(-(g_screenRows - 6));
 		}
 		else if( key == UI_KEY_PGDN || key == UI_KEY_RIGHT )
 		{
-			_needRedraw = MoveActiveSelection(g_ScreenRows - 6);
+			if( shift && key == UI_KEY_RIGHT )
+				_needRedraw = MovePanelSplit(1);
+			else
+				_needRedraw = GetActiveList()->MoveSel(g_screenRows - 6);
 		}
 		else if( key == UI_KEY_HOME )
 		{
-			_needRedraw = MoveActiveSelection(-GetActiveList()->Count());
+			_needRedraw = GetActiveList()->MoveSel(-GetActiveList()->Count());
 		}
 		else if( key == UI_KEY_END )
 		{
-			_needRedraw = MoveActiveSelection(GetActiveList()->Count());
+			_needRedraw = GetActiveList()->MoveSel(GetActiveList()->Count());
 		}
 		else if( key == UI_KEY_INS )
 		{
@@ -521,21 +544,38 @@ void UiApp::Loop()
 
 void UiApp::Redraw()
 {
-	int mid = g_ScreenCols / 2;
-	int panel_h = g_ScreenRows - 2;
+	int panel_h = g_screenRows - 2;
+	UiList *left   = _panelsRTL ? &g_localList  : &g_remoteList;
+	UiList *right  = _panelsRTL ? &g_remoteList : &g_localList;
 
-	DrawPanel(0, 0, mid, panel_h, &g_RemoteList, !_activePanel);
-	DrawPanel(mid, 0, g_ScreenCols - mid, panel_h, &g_LocalList, _activePanel);
+	DrawPanel(0, 0, _panelMid, panel_h, left, _panelsRTL != _remoteActive);
+	DrawPanel(_panelMid, 0, g_screenCols - _panelMid, panel_h, right, _panelsRTL == _remoteActive);
 	PrintStatus();
 
 	char footer[160];
 	SprintfTrunc(footer, sizeof(footer), "      F5 Copy    F6 Rename    F7 MkDir    F8 Delete    F9 %s    F10 Quit", GetCopyPolicy());
-	WritePadAt(0, g_ScreenRows - 1, footer, g_ScreenCols, UI_ATTR_FOOTER_TEXT);
+	WritePadAt(0, g_screenRows - 1, footer, g_screenCols, UI_ATTR_FOOTER_TEXT);
 }
 
-bool UiApp::MoveActiveSelection(int delta)
+bool UiApp::MovePanelSplit(int delta)
 {
-	return GetActiveList()->MoveSel(delta);
+	int old = _panelMid;
+	_panelMid += delta;
+
+	if( _panelMid < UI_PANEL_MIN_WIDTH )
+		_panelMid = UI_PANEL_MIN_WIDTH;
+	if( _panelMid > g_screenCols - UI_PANEL_MIN_WIDTH )
+		_panelMid = g_screenCols - UI_PANEL_MIN_WIDTH;
+
+	return old != _panelMid;
+}
+
+bool UiApp::IsShiftPressed() const
+{
+	union REGS r;
+	r.h.ah = 0x02;
+	int86(0x16, &r, &r);
+	return (r.h.al & 0x03) != 0;
 }
 
 uint16_t UiApp::ReadKey()
@@ -574,7 +614,7 @@ void UiApp::PrintStatus()
 	case 'Q': attr = UI_ATTR_STATUS_QUESTION; break;
 	case 'T': attr = UI_ATTR_STATUS_TRANSFER; break;
 	}
-	WritePadAt(0, g_ScreenRows-2, _lastStatus+1, g_ScreenCols, attr);
+	WritePadAt(0, g_screenRows-2, _lastStatus+1, g_screenCols, attr);
 }
 
 bool UiApp::AskYesNo(const char *fmt, ...)
@@ -701,7 +741,7 @@ bool UiApp::ConfirmOverwrite(bool remote, const char *name)
 
 bool UiApp::PanelHasName(bool remote, const char *name) const
 {
-	UiEntry *e = remote ? g_RemoteList.FindByName(name) : g_LocalList.FindByName(name);
+	UiEntry *e = remote ? g_remoteList.FindByName(name) : g_localList.FindByName(name);
 	return e != NULL && e->kind != 'p';
 }
 
@@ -709,12 +749,12 @@ void UiApp::DoGet()
 {
 	FtpTransport::_ctrlBreakDetected = false;
 
-	UiEntry *e = g_RemoteList.GetCurrent();
+	UiEntry *e = g_remoteList.GetCurrent();
 	if( !e || e->kind == 'p' || e->kind == 'd' )
 		return;
 
 	char localFile[LOCALFILE_MAX_LEN];
-	if( !MakeDosName(localFile, e->name, !g_NoUtf8Arg) )
+	if( !MakeDosName(localFile, e->name, !g_noUtf8Arg) )
 	{
 		SetStatusText('E', "Invalid local DOS name for GET");
 		return;
@@ -724,14 +764,14 @@ void UiApp::DoGet()
 		return;
 
 	if( g_ftp.DoGetAndWait(e->name, localFile, e->size) )
-		g_LocalList.Invalidate();
+		g_localList.Invalidate();
 }
 
 void UiApp::DoPut()
 {
 	FtpTransport::_ctrlBreakDetected = false;
 
-	UiEntry *e = g_LocalList.GetCurrent();
+	UiEntry *e = g_localList.GetCurrent();
 	if( !e || e->kind == 'p' || e->kind == 'd' )
 		return;
 
@@ -746,7 +786,7 @@ void UiApp::DoPut()
 		return;
 
 	if( g_ftp.DoPutAndWait(e->name, remote_name, e->size) )
-		g_RemoteList.Invalidate();
+		g_remoteList.Invalidate();
 }
 
 void UiApp::CopySelectedItems()
@@ -754,18 +794,18 @@ void UiApp::CopySelectedItems()
 	FtpTransport::_ctrlBreakDetected = false;
 
 	UiList *list = GetActiveList();
-	int selectedCount = list->SelectedFileCount();
-	if( selectedCount <= 0 )
+	int selected = list->SelectedFileCount();
+	if( selected <= 0 )
 		return;
 
-	UiEntry **items = (UiEntry **)malloc((size_t)selectedCount * sizeof(UiEntry *));
+	UiEntry **items = (UiEntry **)malloc((size_t)selected * sizeof(UiEntry *));
 	if( items == NULL )
 	{
 		SetStatusText('E', "Not enough free memory");
 		return;
 	}
 
-	int count = list->AllSelected(items, selectedCount);
+	int count = list->AllSelected(items, selected);
 	int ok_count = 0;
 	uint32_t ok_bytes = 0;
 
@@ -780,7 +820,7 @@ void UiApp::CopySelectedItems()
 		if( IsRemoteActive() )
 		{
 			char localFile[LOCALFILE_MAX_LEN];
-			if( MakeDosName(localFile, e->name, !g_NoUtf8Arg) && ConfirmOverwrite(false, localFile) )
+			if( MakeDosName(localFile, e->name, !g_noUtf8Arg) && ConfirmOverwrite(false, localFile) )
 				ok = g_ftp.DoGetAndWait(e->name, localFile, e->size);
 		}
 		else
@@ -804,9 +844,9 @@ void UiApp::CopySelectedItems()
 	if( ok_count > 0 )
 	{
 		if( IsRemoteActive() )
-			g_LocalList.Invalidate();
+			g_localList.Invalidate();
 		else
-			g_RemoteList.Invalidate();
+			g_remoteList.Invalidate();
 	}
 
 	char sizebuf[32];
@@ -819,8 +859,7 @@ void UiApp::CopySelectedItems()
 
 void UiApp::CopyCurrentItem()
 {
-	UiList *list = GetActiveList();
-	if( list->SelectedFileCount() > 0 )
+	if( GetActiveList()->SelectedFileCount() > 0 )
 	{
 		CopySelectedItems();
 		return;
@@ -844,7 +883,7 @@ static bool UiReloadLocalPanel()
 
 bool UiApp::RefreshPanel(bool remote)
 {
-	UiList *list = remote ? &g_RemoteList : &g_LocalList;
+	UiList *list = remote ? &g_remoteList : &g_localList;
 	bool (*reloadFunc)() = remote ? UiReloadRemotePanel : UiReloadLocalPanel;
 
 	if( !list->Refresh(reloadFunc) )
@@ -907,21 +946,21 @@ void UiApp::DeleteSelectedItems()
 	FtpTransport::_ctrlBreakDetected = false;
 
 	UiList *list = GetActiveList();
-	int selectedCount = list->SelectedFileCount();
-	if( selectedCount <= 0 )
+	int selected = list->SelectedFileCount();
+	if( selected <= 0 )
 		return;
 
-	if( !AskYesNo("Delete %d selected files?", selectedCount) )
+	if( !AskYesNo("Delete %d selected files?", selected) )
 		return;
 
-	UiEntry **items = (UiEntry **)malloc((size_t)selectedCount * sizeof(UiEntry *));
+	UiEntry **items = (UiEntry **)malloc((size_t)selected * sizeof(UiEntry *));
 	if( items == NULL )
 	{
 		SetStatusText('E', "Not enough free memory");
 		return;
 	}
 
-	int count = list->AllSelected(items, selectedCount);
+	int count = list->AllSelected(items, selected);
 	int ok_count = 0;
 	uint32_t ok_bytes = 0;
 
@@ -999,7 +1038,6 @@ void UiApp::MakeDirInCurrentPanel()
 	if( !AskString(name, sizeof(name), IsRemoteActive() ? "Remote MKD" : "Local MkDir", "") )
 		return;
 
-	UiList *list = GetActiveList();
 	bool ok = false;
 	const char *sel_name = name;
 	char remote_name[UI_NAME_MAX * 3];
@@ -1022,6 +1060,7 @@ void UiApp::MakeDirInCurrentPanel()
 
 	if( ok )
 	{
+		UiList *list = GetActiveList();
 		list->SetPendingSelection(sel_name);
 		list->Invalidate();
 		SetStatusText('I', "MkDir: %s", name);
@@ -1100,14 +1139,14 @@ void UiApp::PutChAt(int x, int y, int ch)
 
 void UiApp::PutChAtAttr(int x, int y, int ch, uint8_t attr)
 {
-	if( !_screenReady || !g_Screen )
+	if( !_screenReady || !g_screen )
 		return;
-	if( x < 0 || y < 0 || x >= g_ScreenCols || y >= g_ScreenRows )
+	if( x < 0 || y < 0 || x >= g_screenCols || y >= g_screenRows )
 		return;
 	
-	uint16_t off = (uint16_t)((y * g_ScreenCols + x) * 2);
-	g_Screen[off] = (uint8_t)ch;
-	g_Screen[off + 1] = attr;
+	uint16_t off = (uint16_t)((y * g_screenCols + x) * 2);
+	g_screen[off] = (uint8_t)ch;
+	g_screen[off + 1] = attr;
 }
 
 void UiApp::WritePadAt(int x, int y, const char *s, int w, uint8_t attr)
@@ -1177,6 +1216,9 @@ void UiApp::FormatFreeSpace(char *dst, size_t dstSize, UiList *lst)
 
 void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 {
+	if( lst == NULL || w < UI_PANEL_MIN_WIDTH || h < 4 )
+		return;
+
 	char namebuf[UI_NAME_MAX + 8];
 
 	int rows = h - 4;
@@ -1245,6 +1287,7 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 	PutChAt(x, y + h - 2, CH_V);
 	PutChAt(x + w - 1, y + h - 2, CH_V);
 
+	WriteFillAt(x + 1, y + h - 2, w - 2, ' ');
 	lst->PrintStats(namebuf, w - 3, cur);
 	WritePadAt(x + 2, y + h - 2, namebuf, w - 4);
 
@@ -1254,12 +1297,16 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 	char selbuf[32];
 	FormatSelectedStats(selbuf, sizeof(selbuf), lst);
 	len = strlen(selbuf);
+	if( len > w - 2 )
+		len = w - 2;
 	if( len > 0 )
 		memcpy(namebuf, selbuf, len);
 
 	char freebuf[32];
 	FormatFreeSpace(freebuf, sizeof(freebuf), lst);
 	len = strlen(freebuf);
+	if( len > w - 2 )
+		len = w - 2;
 	if( len > 0 )
 		memcpy(namebuf + w - 2 - len, freebuf, len);
 	WriteAt(x + 1, y + h - 1, namebuf);

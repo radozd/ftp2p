@@ -75,18 +75,18 @@ void Log(char type, const char *s)
 #define USERNAME_MAX_LEN      (64)
 #define PASSWORD_MAX_LEN      (40)
 
-static char g_HostArg[FTPSERVERNAME_MAX_LEN];
-static uint16_t g_PortArg;
-static char g_UserArg[USERNAME_MAX_LEN];
-static char g_PassArg[PASSWORD_MAX_LEN];
-static bool g_NoUtf8Arg;
+static char g_hostArg[FTPSERVERNAME_MAX_LEN];
+static uint16_t g_portArg;
+static char g_userArg[USERNAME_MAX_LEN];
+static char g_passArg[PASSWORD_MAX_LEN];
+static bool g_noUtf8Arg;
 
 static bool ParseHostPort(const char *src)
 {
 	char tmp[FTPSERVERNAME_MAX_LEN];
 	CopyTrunc(tmp, sizeof(tmp), src);
 
-	g_PortArg = 21;
+	g_portArg = 21;
 
 	char *colon = strrchr(tmp, ':');
 	if( colon != NULL )
@@ -110,22 +110,22 @@ static bool ParseHostPort(const char *src)
 		if( tmp[0] == '\0' )
 			return false;
 
-		g_PortArg = (uint16_t)portVal;
+		g_portArg = (uint16_t)portVal;
 	}
 
-	CopyTrunc(g_HostArg, sizeof(g_HostArg), tmp);
-	return g_HostArg[0] != '\0';
+	CopyTrunc(g_hostArg, sizeof(g_hostArg), tmp);
+	return g_hostArg[0] != '\0';
 }
 
 static bool ParseArgs(int argc, char *argv[])
 {
 	bool hostSet = false;
 
-	g_HostArg[0] = '\0';
-	g_UserArg[0] = '\0';
-	g_PassArg[0] = '\0';
-	g_PortArg = 21;
-	g_NoUtf8Arg = false;
+	g_hostArg[0] = '\0';
+	g_userArg[0] = '\0';
+	g_passArg[0] = '\0';
+	g_portArg = 21;
+	g_noUtf8Arg = false;
 
 	if( argc < 2 )
 		return false;
@@ -140,8 +140,8 @@ static bool ParseArgs(int argc, char *argv[])
 				return false;
 
 			++i;
-			CopyTrunc(g_UserArg, sizeof(g_UserArg), argv[i]);
-			if( g_UserArg[0] == '\0' )
+			CopyTrunc(g_userArg, sizeof(g_userArg), argv[i]);
+			if( g_userArg[0] == '\0' )
 				return false;
 		}
 		else if( strcmp(arg, "-p") == 0 )
@@ -150,13 +150,13 @@ static bool ParseArgs(int argc, char *argv[])
 				return false;
 
 			++i;
-			CopyTrunc(g_PassArg, sizeof(g_PassArg), argv[i]);
-			if( g_PassArg[0] == '\0' )
+			CopyTrunc(g_passArg, sizeof(g_passArg), argv[i]);
+			if( g_passArg[0] == '\0' )
 				return false;
 		}
 		else if( strcmp(arg, "-no-utf8") == 0 )
 		{
-			g_NoUtf8Arg = true;
+			g_noUtf8Arg = true;
 		}
 		else if( arg[0] == '-' )
 		{
@@ -183,14 +183,15 @@ static bool ParseArgs(int argc, char *argv[])
 typedef void (*StatusCallback)(char type, const char *s);
 
 /* ------------------------------------------------------------------------- */
-static uint8_t far *g_Screen = NULL;
-static uint16_t g_ScreenRows = 25, g_ScreenCols = 80;
+static uint8_t far *g_screen = NULL;
+static uint16_t g_screenRows = 25;
+static uint16_t g_screenCols = 80;
 /* ------------------------------------------------------------------------- */
 #include "UILIST.CPP"
 
 #define UI_MAX_ITEMS (2000)
-static UiList g_RemoteList(UI_MAX_ITEMS, false);
-static UiList g_LocalList(UI_MAX_ITEMS, true);
+static UiList g_remoteList(UI_MAX_ITEMS, false);
+static UiList g_localList(UI_MAX_ITEMS, true);
 /* ------------------------------------------------------------------------- */
 #include "FSFTP.CPP"
 static FtpTransport g_ftp;
@@ -213,7 +214,7 @@ int main(int argc, char *argv[])
 {
 	printf("FTP2P by Konstantin Bortnikov (radozd@ya.ru) (C)opyright 2026\nVersion: " __DATE__ "\n");
 
-	if( !g_RemoteList.Ok() || !g_LocalList.Ok() )
+	if( !g_remoteList.Ok() || !g_localList.Ok() )
 	{
 		printf("Not enough free memory\n");
 		return 1;
@@ -230,21 +231,22 @@ int main(int argc, char *argv[])
 		printf("Dual-pane MS-DOS FTP client: left=remote, right=local.\n");
 		printf("Ops: cd/get/put/rename/mkdir/delete, multi-file copy.\n");
 		printf("\n");
-		printf("Keys: Tab panel, Enter open, Backspace up, Esc abort, F10 quit\n");
-		printf("      Up/Down/PgUp/PgDn/Home/End move\n");
+		printf("Keys: Tab active panel, Shift+Tab swap panels, Enter open, Backspace up\n");
+		printf("      Left/Right/PgUp/PgDn move by page, Up/Down/Home/End move\n");
+		printf("      Shift+Left/Right resize panels, Esc abort, F10 quit\n");
 		printf("      Ins/Space mark, Gray +/-/* select\n");
 		printf("      F5 copy, F6 rename, F7 mkdir, F8 delete\n");
 		printf("      F9 overwrite policy: ASK/SKIP/OVRW\n");
 		return 1;
 	}
 
-	if( !g_local.Init(SetStatusText, &g_LocalList) )
+	if( !g_local.Init(SetStatusText, &g_localList) )
 		return 1;
 
-	if( !g_ftp.Init(SetStatusText, &g_RemoteList) )
+	if( !g_ftp.Init(SetStatusText, &g_remoteList) )
 		return 1;
 
-	if( !g_ftp.ConnectAndLogin(g_HostArg, g_PortArg, g_UserArg, g_PassArg) )
+	if( !g_ftp.ConnectAndLogin(g_hostArg, g_portArg, g_userArg, g_passArg) )
 	{
 		g_ftp.Cleanup();
 		return 1;

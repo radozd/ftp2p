@@ -225,7 +225,7 @@ void UiList::PrintCwd(char *dst, int maxw)
 {
 	char *name = _cwd;
 	char tmp[160];
-	if( !_dosNames && !g_NoUtf8Arg )
+	if( !_dosNames && !g_noUtf8Arg )
 	{
 		Utf8ToOem(tmp, sizeof(tmp), _cwd, g_Encoding);
 		name = tmp;
@@ -253,7 +253,7 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 		
 	char *name = e->name;
 	char tmp[160];
-	if( !_dosNames && !g_NoUtf8Arg )
+	if( !_dosNames && !g_noUtf8Arg )
 	{
 		Utf8ToOem(tmp, sizeof(tmp), name, g_Encoding);
 		name = tmp;
