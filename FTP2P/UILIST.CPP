@@ -84,18 +84,22 @@ public:
 private:
 	bool _dosNames;
 	bool _truncated;
+	bool _needRefresh;
 	char _cwd[128];
-	UiEntry *_items;
+
 	char *_namePool;
 	uint16_t _namePoolUsed;
+	uint16_t _namePoolSize;
+
+	UiEntry *_items;	
 	int _count;
 	int _capacity;
 	int _top;
 	int _sel;
+	
 	char _pendingSelection[UI_NAME_MAX];
 	int _fallbackSelectionIndex;
 	__int64 _freeBytes;
-	bool _needRefresh;
 
 	char *AllocName(const char *name);
 	static int EntryCmp(const void *a, const void *b);
@@ -123,7 +127,19 @@ UiList::UiList(int cap, bool dosNames)
 
 	_capacity = cap;
 	_items = (UiEntry *)calloc((size_t)cap, sizeof(UiEntry));
-	_namePool = (char *)malloc(NAME_POOL_SIZE);
+
+	if( _dosNames )
+	{
+		unsigned long need = (unsigned long)cap * 13; // 8.3\0
+		if( need > NAME_POOL_SIZE )
+			need = NAME_POOL_SIZE;
+		_namePoolSize = (uint16_t)need;
+	}
+	else
+	{
+		_namePoolSize = (uint16_t)NAME_POOL_SIZE;
+	}
+	_namePool = (char *)malloc(_namePoolSize);
 }
 
 UiList::~UiList()
@@ -135,6 +151,7 @@ UiList::~UiList()
 	_items = NULL;
 	_namePool = NULL;
 	_namePoolUsed = 0;
+	_namePoolSize = 0;
 	_capacity = 0;
 	_count = 0;
 	_sel = 0;
@@ -179,7 +196,7 @@ char *UiList::AllocName(const char *name)
 		name = "";
 
 	size_t need = strlen(name) + 1u;
-	if( need > (size_t)(NAME_POOL_SIZE - _namePoolUsed) )
+	if( need > (size_t)(_namePoolSize - _namePoolUsed) )
 		return NULL;
 
 	char *dst = _namePool + _namePoolUsed;

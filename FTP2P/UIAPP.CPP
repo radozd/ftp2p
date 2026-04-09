@@ -758,7 +758,7 @@ bool UiApp::IsViewable(const UiEntry *e) const
 {
 	if( e == NULL || e->name[0] == '\0' )
 		return false;
-	if( e->size > 4096ul )
+	if( e->size > 65535ul )
 		return false;
 
 	const char *ext = strrchr(e->name, '.');
