@@ -754,14 +754,14 @@ bool UiApp::PanelHasName(bool remote, const char *name) const
 	return e != NULL && e->kind != 'p';
 }
 
-bool UiApp::IsViewable(const const UiEntry *e) const
+bool UiApp::IsViewable(const UiEntry *e) const
 {
 	if( e == NULL || e->name[0] == '\0' )
 		return false;
 	if( e->size > 4096ul )
 		return false;
 
-	const char *ext = strrchr(name, '.');
+	const char *ext = strrchr(e->name, '.');
 	if( ext == NULL || ext[1] == '\0' )
 		return false;
 
