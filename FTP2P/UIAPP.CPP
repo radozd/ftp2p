@@ -275,6 +275,10 @@ private:
 	bool ConfirmOverwrite(bool remote, const char *name);
 
 	bool PanelHasName(bool remote, const char *name) const;
+	bool IsViewable(const UiEntry *e) const;
+	bool LoadQuickViewText(const char *fileName, char *text, size_t textSize, bool &truncated) const;
+	void ShowQuickView(const char *title, const char *text, bool truncated);
+	void QuickViewCurrentItem();
 	void DoGet();
 	void DoPut();
 	void CopyCurrentItem();
@@ -477,14 +481,14 @@ void UiApp::Loop()
 		else if( key == UI_KEY_PGUP || key == UI_KEY_LEFT )
 		{
 			if( shift && key == UI_KEY_LEFT )
-				_needRedraw = MovePanelSplit(-1);
+				_needRedraw = MovePanelSplit(-4);
 			else
 				_needRedraw = GetActiveList()->MoveSel(-(g_screenRows - 6));
 		}
 		else if( key == UI_KEY_PGDN || key == UI_KEY_RIGHT )
 		{
 			if( shift && key == UI_KEY_RIGHT )
-				_needRedraw = MovePanelSplit(1);
+				_needRedraw = MovePanelSplit(4);
 			else
 				_needRedraw = GetActiveList()->MoveSel(g_screenRows - 6);
 		}
@@ -517,6 +521,11 @@ void UiApp::Loop()
 		else if( key == UI_KEY_GRAY_STAR )
 		{
 			GetActiveList()->InvertFileSelection();
+			_needRedraw = true;
+		}
+		else if( key == UI_KEY_F3 )
+		{
+			QuickViewCurrentItem();
 			_needRedraw = true;
 		}
 		else if( key == UI_KEY_F5 )
@@ -553,7 +562,7 @@ void UiApp::Redraw()
 	PrintStatus();
 
 	char footer[160];
-	SprintfTrunc(footer, sizeof(footer), "      F5 Copy    F6 Rename    F7 MkDir    F8 Delete    F9 %s    F10 Quit", GetCopyPolicy());
+	SprintfTrunc(footer, sizeof(footer), "   F3 View   F5 Copy   F6 Rename   F7 MkDir   F8 Delete   F9 %s   F10 Quit", GetCopyPolicy());
 	WritePadAt(0, g_screenRows - 1, footer, g_screenCols, UI_ATTR_FOOTER_TEXT);
 }
 
@@ -745,6 +754,172 @@ bool UiApp::PanelHasName(bool remote, const char *name) const
 	return e != NULL && e->kind != 'p';
 }
 
+bool UiApp::IsViewable(const const UiEntry *e) const
+{
+	if( e == NULL || e->name[0] == '\0' )
+		return false;
+	if( e->size > 4096ul )
+		return false;
+
+	const char *ext = strrchr(name, '.');
+	if( ext == NULL || ext[1] == '\0' )
+		return false;
+
+	return stricmp(ext, ".bbs") == 0 ||
+		stricmp(ext, ".txt") == 0 ||
+		stricmp(ext, ".ion") == 0 ||
+		stricmp(ext, ".diz") == 0 ||
+		stricmp(ext, ".nfo") == 0;
+}
+
+bool UiApp::LoadQuickViewText(const char *fileName, char *text, size_t textSize, bool &truncated) const
+{
+	if( text == NULL || textSize < 2 || fileName == NULL || fileName[0] == '\0' )
+		return false;
+
+	text[0] = '\0';
+	truncated = false;
+
+	FILE *f = fopen(fileName, "rb");
+	if( f == NULL )
+		return false;
+
+	int ch;
+	size_t i = 0;
+	while( (ch = fgetc(f)) != EOF )
+	{
+		if( ch == '\r' )
+			continue;
+
+		if( ch == '\t' )
+			ch = ' ';
+
+		text[i++] = (char)ch;	
+		if( i >= textSize-1 )
+		{
+			truncated = true;
+			break;
+		}
+	}
+
+	text[i] = '\0';
+	fclose(f);
+	return true;
+}
+
+void UiApp::ShowQuickView(const char *title, const char *text, bool truncated)
+{
+	int w = g_screenCols - 4;
+	int h = g_screenRows - 4;
+	int x = 2;
+	int y = 1;
+
+	for( int row = 1; row < h - 1; row++ )
+	{
+		PutChAt(x, y + row, CH_V);
+		WriteFillAt(x+1, y + row, w - 2, ' ');
+		PutChAt(x + w - 1, y + row, CH_V);
+	}
+
+	PutChAt(x, y, CH_UL);
+	PutChAt(x + w - 1, y, CH_UR);
+	PutChAt(x, y + h - 1, CH_LL);
+	PutChAt(x + w - 1, y + h - 1, CH_LR);
+	WriteFillAt(x + 1, y, w - 2, CH_H);
+	WriteFillAt(x + 1, y + h - 1, w - 2, CH_H);
+
+	char line[160];
+	int max_len = sizeof(line) - 1;
+	if( max_len > w - 2 )
+		max_len = w - 2;
+
+	if( title == NULL || title[0] == '\0' )
+		CopyTrunc(line, max_len, " View ");
+	else
+	{
+		line[0] = ' ';
+		CropRight(line + 1, max_len - 3, title);
+		strcat(line, " ");
+	}
+	WriteAt(x + 2, y, line, UI_ATTR_SELECTED);
+
+
+	const char *src = text != NULL ? text : "";
+	for( int row = 0; row < h - 2; row++ )
+	{
+		if( *src == '\n' )
+			src++;
+
+		int col = 0;
+		while( *src && *src != '\n' && col < max_len )
+			line[col++] = *src++;
+
+		line[col] = '\0';
+		WritePadAt(x + 1, y + 1 + row, line, max_len);
+
+		while( *src && *src != '\n' )
+			src++;
+		if( *src == '\n' )
+			src++;
+		if( *src == '\0' && col == 0 )
+			break;
+	}
+
+	if( truncated )
+		WriteAt(x + w - 15, y + h - 1, " truncated ", UI_ATTR_SELECTED);
+}
+
+void UiApp::QuickViewCurrentItem()
+{
+	UiList *list = GetActiveList();
+	UiEntry *e = list->GetCurrent();
+	if( !e || e->kind == 'p' || e->kind == 'd' )
+		return;
+
+	if( !IsViewable(e) )
+	{
+		SetStatusText('W', "View not available: %s", e->name);
+		return;
+	}
+
+	char tmp[LOCALFILE_MAX_LEN];
+	bool del = false;
+
+	if( IsRemoteActive() )
+	{
+		CopyTrunc(tmp, sizeof(tmp), "ftp2p.tmp");
+		remove(tmp);
+
+		FtpTransport::_ctrlBreakDetected = false;
+		if( !g_ftp.DoGetAndWait(e->name, tmp, e->size) )
+			return;
+
+		del = true;
+	}
+	else
+	{
+		CopyTrunc(tmp, sizeof(tmp), e->name);
+	}
+
+	static char text[4096];	
+	bool truncated = false;
+	bool ok = LoadQuickViewText(tmp, text, sizeof(text), truncated);
+	if( del )
+		remove(tmp);
+
+	if( !ok )
+	{
+		SetStatusText('E', "View open failed: %s", e->name);
+		return;
+	}
+
+	char namebuf[UI_NAME_MAX + 8];
+	list->PrintName(namebuf, sizeof(namebuf), e);
+	ShowQuickView(namebuf, text, truncated);
+
+	ReadKey();
+}
+
 void UiApp::DoGet()
 {
 	FtpTransport::_ctrlBreakDetected = false;
@@ -753,17 +928,17 @@ void UiApp::DoGet()
 	if( !e || e->kind == 'p' || e->kind == 'd' )
 		return;
 
-	char localFile[LOCALFILE_MAX_LEN];
-	if( !MakeDosName(localFile, e->name, !g_noUtf8Arg) )
+	char name[LOCALFILE_MAX_LEN];
+	if( !MakeDosName(name, e->name, !g_noUtf8Arg) )
 	{
 		SetStatusText('E', "Invalid local DOS name for GET");
 		return;
 	}
 
-	if( !ConfirmOverwrite(false, localFile) )
+	if( !ConfirmOverwrite(false, name) )
 		return;
 
-	if( g_ftp.DoGetAndWait(e->name, localFile, e->size) )
+	if( g_ftp.DoGetAndWait(e->name, name, e->size) )
 		g_localList.Invalidate();
 }
 
@@ -775,17 +950,17 @@ void UiApp::DoPut()
 	if( !e || e->kind == 'p' || e->kind == 'd' )
 		return;
 
-	char remote_name[UI_NAME_MAX * 3];
-	if( !MakeRemoteName(remote_name, sizeof(remote_name), e->name, true) )
+	char name[UI_NAME_MAX * 3];
+	if( !MakeRemoteName(name, sizeof(name), e->name, true) )
 	{
 		SetStatusText('E', "Invalid remote name for PUT");
 		return;
 	}
 
-	if( !ConfirmOverwrite(true, remote_name) )
+	if( !ConfirmOverwrite(true, name) )
 		return;
 
-	if( g_ftp.DoPutAndWait(e->name, remote_name, e->size) )
+	if( g_ftp.DoPutAndWait(e->name, name, e->size) )
 		g_remoteList.Invalidate();
 }
 
@@ -819,15 +994,15 @@ void UiApp::CopySelectedItems()
 
 		if( IsRemoteActive() )
 		{
-			char localFile[LOCALFILE_MAX_LEN];
-			if( MakeDosName(localFile, e->name, !g_noUtf8Arg) && ConfirmOverwrite(false, localFile) )
-				ok = g_ftp.DoGetAndWait(e->name, localFile, e->size);
+			char name[LOCALFILE_MAX_LEN];
+			if( MakeDosName(name, e->name, !g_noUtf8Arg) && ConfirmOverwrite(false, name) )
+				ok = g_ftp.DoGetAndWait(e->name, name, e->size);
 		}
 		else
 		{
-			char remote_name[UI_NAME_MAX * 3];
-			if( MakeRemoteName(remote_name, sizeof(remote_name), e->name, true) && ConfirmOverwrite(true, remote_name) )
-				ok = g_ftp.DoPutAndWait(e->name, remote_name, e->size);
+			char name[UI_NAME_MAX * 3];
+			if( MakeRemoteName(name, sizeof(name), e->name, true) && ConfirmOverwrite(true, name) )
+				ok = g_ftp.DoPutAndWait(e->name, name, e->size);
 		}
 
 		if( ok )
@@ -1151,15 +1326,24 @@ void UiApp::PutChAtAttr(int x, int y, int ch, uint8_t attr)
 
 void UiApp::WritePadAt(int x, int y, const char *s, int w, uint8_t attr)
 {
-	char tmp[160];
-	CopyTrunc(tmp, sizeof(tmp), s);
-	
-	int n = strlen(tmp);
-	while( n < w )
-		tmp[n++] = ' ';
-	tmp[n] = '\0';
+	if( w <= 0 )
+		return;
 
-	WriteAt(x, y, tmp, attr);
+	int i = 0;
+	if( s != NULL )
+	{
+		while( i < w && s[i] != '\0' )
+		{
+			PutChAtAttr(x + i, y, s[i], attr);
+			i++;
+		}
+	}
+
+	while( i < w )
+	{
+		PutChAtAttr(x + i, y, ' ', attr);
+		i++;
+	}
 }
 
 void UiApp::WriteFillAt(int x, int y, int count, int ch)
@@ -1173,7 +1357,7 @@ void UiApp::WriteAt(int x, int y, const char *s, uint8_t attr)
 	if( s == NULL )
 		return;
 
-	for( int i = 0; s[i] != 0; i++ )
+	for( int i = 0; s[i] != '\0'; i++ )
 		PutChAtAttr(x + i, y, s[i], attr);
 }
 
