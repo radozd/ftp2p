@@ -271,17 +271,47 @@ static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, ui
 
 void FormatSize(char *dst, size_t dstSize, __int64 bytes)
 {
+	const __int64 KB = 1024ul;
+	const __int64 MB = 1024ul * 1024ul;
+	const __int64 GB = 1024ul * 1024ul * 1024ul;
+
 	if( dst == NULL || dstSize == 0 )
 		return;
 
 	if( bytes < 10240ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%lu B", (unsigned long)bytes);
-	else if( bytes < 1024ul * 1024ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%lu KB", (unsigned long)(bytes / 1024ul));
-	else if( bytes < 1024ul * 1024ul * 1024ul )
-		SprintfTrunc(dst, (size_t)dstSize, "%.2f MB", (double)bytes / (1024.0 * 1024.0));
+	{
+		SprintfTrunc(dst, dstSize, "%lu B", (unsigned long)bytes);
+	}
+	else if( bytes < MB )
+	{
+		SprintfTrunc(dst, dstSize, "%lu KB", (unsigned long)(bytes / KB));
+	}
+	else if( bytes < GB )
+	{
+		unsigned long whole = (unsigned long)(bytes / MB);
+		__int64 rem = bytes % MB;
+		unsigned long frac = (unsigned long)((rem * 100 + (MB / 2)) / MB);
+
+		if( frac >= 100 )
+		{
+			whole++;
+			frac = 0;
+		}
+		SprintfTrunc(dst, dstSize, "%lu.%02lu MB", whole, frac);
+	}
 	else
-		SprintfTrunc(dst, (size_t)dstSize, "%.3f GB", (double)bytes / (1024.0 * 1024.0 * 1024.0));
+	{
+		unsigned long whole = (unsigned long)(bytes / GB);
+		__int64 rem = bytes % GB;
+		unsigned long frac = (unsigned long)((rem * 1000 + (GB / 2)) / GB);
+		
+		if( frac >= 1000 )
+		{
+			whole++;
+			frac = 0;
+		}
+		SprintfTrunc(dst, dstSize, "%lu.%03lu GB", whole, frac);
+	}
 }
 
 static int KeyAscii(uint16_t key)
