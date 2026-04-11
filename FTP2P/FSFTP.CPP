@@ -137,6 +137,7 @@ public:
 
 	bool ConnectAndLogin(const char *host, uint16_t port, const char *user, const char *pass);
 	void Quit();
+	bool Shutdown(uint32_t quitTimeoutMs);
 	void Cleanup();
 
 	void PollControlSocket(uint32_t timeout);
@@ -552,7 +553,27 @@ bool FtpTransport::IsControlClosed()
 
 void FtpTransport::Quit()
 {
+	Shutdown(_timeouts.command < 1500ul ? _timeouts.command : 1500ul);
+}
+
+bool FtpTransport::Shutdown(uint32_t quitTimeoutMs)
+{
+	_ctrlBreakDetected = false;
+	CloseDataSocketsOnly();
+
+	if( _controlSocket == NULL )
+		return true;
+
+	ResetReplyState();
 	SendCommandWithState("QUIT", NULL, CmdSent);
+
+	if( quitTimeoutMs == 0 )
+		return true;
+
+	if( !WaitForStateSet(quitTimeoutMs, (1ul << Closing) | (1ul << CmdLine), 0ul) )
+		return false;
+
+	return true;
 }
 
 void FtpTransport::SetTimeoutProfile(uint32_t commandTimeoutMs, uint32_t dataIdleTimeoutMs)
@@ -590,7 +611,7 @@ void FtpTransport::Pulse()
 	{
 		last = now;
 		st[0] = s[i++ % 6];
-		SetStatus('S', st);
+		UiStatusCallback('S', st);
 	}
 }
 

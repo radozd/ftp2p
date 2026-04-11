@@ -240,7 +240,7 @@ public:
 	void ClearScreen();
 	void Cleanup();
 
-	void SetStatusText(char type, const char *fmt, ...);
+	void SetStatus(char type, const char *s);
 
 	void Loop();
 
@@ -265,6 +265,7 @@ private:
 
 	bool MovePanelSplit(int delta);
 
+	void SetStatusF(char type, const char *fmt, ...);
 	void PrintStatus();
 	bool AskYesNo(const char *fmt, ...);
 	bool AskString(char *buf, size_t bufSize, const char *title, const char *initialValue);
@@ -366,22 +367,14 @@ void UiApp::Cleanup()
 	_screenSnapshot.Restore(g_screen);
 }
 
-void UiApp::SetStatusText(char type, const char *fmt, ...)
+void UiApp::SetStatus(char type, const char *s)
 {
-	char tmp[160];
-	va_list ap;
-
-	va_start(ap, fmt);
-	SprintfTruncV(tmp, sizeof(tmp), fmt, ap);
-	va_end(ap);
-
 	if( type == 'S' )
 	{
-		PutChAtAttr(0, g_screenRows - 1, tmp[0], UI_ATTR_NORMAL);
+		PutChAtAttr(0, g_screenRows - 1, s[0], UI_ATTR_NORMAL);
 		return;
 	}
 
-	char *s = tmp;
 	while( *s == '\r' || *s == '\n' )
 		s++;
 
@@ -396,6 +389,18 @@ void UiApp::SetStatusText(char type, const char *fmt, ...)
 	CopyDataTrunc(_lastStatus+1, sizeof(_lastStatus)-1, s, (size_t)(eol - s));
 
 	PrintStatus();
+}
+
+void UiApp::SetStatusF(char type, const char *fmt, ...)
+{
+	char tmp[160];
+	va_list ap;
+
+	va_start(ap, fmt);
+	SprintfTruncV(tmp, sizeof(tmp), fmt, ap);
+	va_end(ap);
+
+	SetStatus(type, tmp);
 }
 
 UiList *UiApp::GetActiveList() const
@@ -413,13 +418,13 @@ void UiApp::Loop()
 		if( g_localList.NeedRefresh() )
 		{
 			if( !RefreshPanel(false) )
-				SetStatusText('E', "Local refresh failed");
+				SetStatusF('E', "Local refresh failed");
 		}
 		
 		if( g_remoteList.NeedRefresh() )
 		{
 			if( !RefreshPanel(true) )
-				SetStatusText('E', "Remote refresh failed");
+				SetStatusF('E', "Remote refresh failed");
 		}
 
 		if( _needRedraw )
@@ -433,7 +438,7 @@ void UiApp::Loop()
 
 		if( key == UI_KEY_CONTROL_CLOSED )
 		{
-			SetStatusText('W', "Control connection closed");
+			SetStatusF('W', "Control connection closed");
 			break;
 		}
 
@@ -461,18 +466,18 @@ void UiApp::Loop()
 		else if( key == UI_KEY_ESC || ascii == 27 )
 		{
 			FtpTransport::_ctrlBreakDetected = true;
-			SetStatusText('W', "Abort requested");
+			SetStatusF('W', "Abort requested");
 		}
 		else if( key == UI_KEY_F9 )
 		{
 			SwitchCopyPolicy();
-			SetStatusText('I', "Copy policy: %s", GetCopyPolicy());
+			SetStatusF('I', "Copy policy: %s", GetCopyPolicy());
 			_needRedraw = true;
 		}
 		else if( key == UI_KEY_F10 )
 		{
-			SetStatusText('I', "Exiting...");
-			g_ftp.Quit();
+			SetStatusF('I', "Exiting...");
+			g_ftp.Shutdown(1500ul);
 			break;
 		}
 		else if( key == UI_KEY_UP )
@@ -640,26 +645,26 @@ bool UiApp::AskYesNo(const char *fmt, ...)
 	SprintfTruncV(tmp, sizeof(tmp), fmt, ap);
 	va_end(ap);
 
-	SetStatusText('Q', "%s [Y/N]", tmp);
+	SetStatusF('Q', "%s [Y/N]", tmp);
 
 	while( 1 )
 	{
 		uint16_t key = ReadKey();
 		if( key == UI_KEY_CONTROL_CLOSED )
 		{
-			SetStatusText('I', "");
+			SetStatusF('I', "");
 			return false;
 		}
 
 		char ch = KeyAscii(key);
 		if( ch == 'y' || ch == 'Y' )
 		{
-			SetStatusText('I', "");
+			SetStatusF('I', "");
 			return true;
 		}
 		if( ch == 'n' || ch == 'N' || ch == 27 )
 		{
-			SetStatusText('I', "");
+			SetStatusF('I', "");
 			return false;
 		}
 	}
@@ -675,19 +680,19 @@ bool UiApp::AskString(char *buf, size_t bufSize, const char *title, const char *
 
 	while( 1 )
 	{
-		SetStatusText('Q', "%s: %s_", title ? title : "Input", buf);
+		SetStatusF('Q', "%s: %s_", title ? title : "Input", buf);
 
 		uint16_t key = ReadKey();
 		if( key == UI_KEY_CONTROL_CLOSED )
 		{
-			SetStatusText('I', "");
+			SetStatusF('I', "");
 			return false;
 		}
 
 		int ascii = KeyAscii(key);
 		if( key == UI_KEY_ESC || ascii == 27 )
 		{
-			SetStatusText('I', "");
+			SetStatusF('I', "");
 			return false;
 		}
 		if( key == UI_KEY_ENTER || ascii == 13 )
@@ -695,7 +700,7 @@ bool UiApp::AskString(char *buf, size_t bufSize, const char *title, const char *
 			TrimBoth(buf);
 			if( buf[0] == '\0' )
 			{
-				SetStatusText('W', "Empty value not allowed");
+				SetStatusF('W', "Empty value not allowed");
 				return false;
 			}
 			return true;
@@ -739,7 +744,7 @@ bool UiApp::ConfirmOverwrite(bool remote, const char *name)
 
 	if( IsPolicy("SKIP") )
 	{
-		SetStatusText('I', "Skipped");
+		SetStatusF('I', "Skipped");
 		return false;
 	}
 
@@ -749,7 +754,7 @@ bool UiApp::ConfirmOverwrite(bool remote, const char *name)
 	if( AskYesNo("Overwrite %s file '%s'?", remote ? "remote" : "local", name) )
 		return true;
 
-	SetStatusText('I', "Skipped");
+	SetStatusF('I', "Skipped");
 	return false;
 }
 
@@ -864,7 +869,7 @@ void UiApp::QuickViewCurrentItem()
 	bool html;
 	if( !IsViewable(e, html) )
 	{
-		SetStatusText('W', "View not available: %s", e->name);
+		SetStatusF('W', "View not available: %s", e->name);
 		return;
 	}
 
@@ -895,7 +900,7 @@ void UiApp::QuickViewCurrentItem()
 
 	if( !ok )
 	{
-		SetStatusText('E', "View open failed: %s", e->name);
+		SetStatusF('E', "View open failed: %s", e->name);
 		return;
 	}
 
@@ -917,7 +922,7 @@ void UiApp::DoGet()
 	char name[LOCALFILE_MAX_LEN];
 	if( !MakeDosName(name, e->name, !g_noUtf8Arg) )
 	{
-		SetStatusText('E', "Invalid local DOS name for GET");
+		SetStatusF('E', "Invalid local DOS name for GET");
 		return;
 	}
 
@@ -939,7 +944,7 @@ void UiApp::DoPut()
 	char name[UI_NAME_MAX * 3];
 	if( !MakeRemoteName(name, sizeof(name), e->name, true) )
 	{
-		SetStatusText('E', "Invalid remote name for PUT");
+		SetStatusF('E', "Invalid remote name for PUT");
 		return;
 	}
 
@@ -962,7 +967,7 @@ void UiApp::CopySelectedItems()
 	UiEntry **items = (UiEntry **)malloc((size_t)selected * sizeof(UiEntry *));
 	if( items == NULL )
 	{
-		SetStatusText('E', "Not enough free memory");
+		SetStatusF('E', "Not enough free memory");
 		return;
 	}
 
@@ -1013,9 +1018,9 @@ void UiApp::CopySelectedItems()
 	char sizebuf[32];
 	FormatSize(sizebuf, sizeof(sizebuf), ok_bytes);
 	if( FtpTransport::_ctrlBreakDetected )
-		SetStatusText('W', "Copy cancelled: %d/%d files (%s)", ok_count, count, sizebuf);
+		SetStatusF('W', "Copy cancelled: %d/%d files (%s)", ok_count, count, sizebuf);
 	else
-		SetStatusText(ok_count == count ? 'I' : 'W', "Copied %d/%d files (%s)", ok_count, count, sizebuf);
+		SetStatusF(ok_count == count ? 'I' : 'W', "Copied %d/%d files (%s)", ok_count, count, sizebuf);
 }
 
 void UiApp::CopyCurrentItem()
@@ -1054,7 +1059,7 @@ bool UiApp::RefreshPanel(bool remote)
 	_needRedraw = true;
 
 	if( list->IsTruncated() )
-		SetStatusText('W', "LIST truncated (%d): too many entries", list->Count());
+		SetStatusF('W', "LIST truncated (%d): too many entries", list->Count());
 	return true;
 }
 
@@ -1068,7 +1073,7 @@ void UiApp::EnterUp()
 	else
 	{
 		list->ClearPendingSelection();
-		SetStatusText('E', "%s cd .. failed", IsRemoteActive() ? "Remote" : "Local");
+		SetStatusF('E', "%s cd .. failed", IsRemoteActive() ? "Remote" : "Local");
 	}
 }
 
@@ -1097,7 +1102,7 @@ void UiApp::EnterCurrentItem()
 		{
 			char namebuf[UI_NAME_MAX + 8];
 			list->PrintName(namebuf, sizeof(namebuf), e);
-			SetStatusText('E', "%s enter failed: %s", IsRemoteActive() ? "Remote" : "Local", namebuf);
+			SetStatusF('E', "%s enter failed: %s", IsRemoteActive() ? "Remote" : "Local", namebuf);
 		}
 	}
 }
@@ -1117,7 +1122,7 @@ void UiApp::DeleteSelectedItems()
 	UiEntry **items = (UiEntry **)malloc((size_t)selected * sizeof(UiEntry *));
 	if( items == NULL )
 	{
-		SetStatusText('E', "Not enough free memory");
+		SetStatusF('E', "Not enough free memory");
 		return;
 	}
 
@@ -1147,9 +1152,9 @@ void UiApp::DeleteSelectedItems()
 		list->Invalidate();
 
 	if( FtpTransport::_ctrlBreakDetected )
-		SetStatusText('W', "Delete cancelled: %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
+		SetStatusF('W', "Delete cancelled: %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
 	else
-		SetStatusText(ok_count == count ? 'I' : 'W', "Deleted %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
+		SetStatusF(ok_count == count ? 'I' : 'W', "Deleted %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
 }
 
 void UiApp::DeleteCurrentItem()
@@ -1182,14 +1187,14 @@ void UiApp::DeleteCurrentItem()
 	{
 		list->SetFallbackSelectionToCurrent();
 		list->Invalidate();
-		SetStatusText('I', "Deleted: %s", namebuf);
+		SetStatusF('I', "Deleted: %s", namebuf);
 	}
 	else
 	{
 		if( FtpTransport::_ctrlBreakDetected )
-			SetStatusText('W', "Delete cancelled: %s", namebuf);
+			SetStatusF('W', "Delete cancelled: %s", namebuf);
 		else
-			SetStatusText('E', "Delete failed: %s", namebuf);
+			SetStatusF('E', "Delete failed: %s", namebuf);
 	}
 }
 
@@ -1207,7 +1212,7 @@ void UiApp::MakeDirInCurrentPanel()
 	{
 		if( !MakeRemoteName(remote_name, sizeof(remote_name), name, true) )
 		{
-			SetStatusText('E', "Invalid remote name");
+			SetStatusF('E', "Invalid remote name");
 			return;
 		}
 
@@ -1224,11 +1229,11 @@ void UiApp::MakeDirInCurrentPanel()
 		UiList *list = GetActiveList();
 		list->SetPendingSelection(sel_name);
 		list->Invalidate();
-		SetStatusText('I', "MkDir: %s", name);
+		SetStatusF('I', "MkDir: %s", name);
 	}
 	else
 	{
-		SetStatusText('E', "MkDir failed: %s", name);
+		SetStatusF('E', "MkDir failed: %s", name);
 	}
 }
 
@@ -1237,7 +1242,7 @@ void UiApp::RenameCurrentItem()
 	UiList *list = GetActiveList();
 	if( list->SelectedFileCount() != 0 )
 	{
-		SetStatusText('W', "Clear selection before rename");
+		SetStatusF('W', "Clear selection before rename");
 		return;
 	}
 
@@ -1263,7 +1268,7 @@ void UiApp::RenameCurrentItem()
 	{
 		if( !MakeRemoteName(remote_new_name, sizeof(remote_new_name), new_name, true) )
 		{
-			SetStatusText('E', "Invalid remote name");
+			SetStatusF('E', "Invalid remote name");
 			return;
 		}
 
@@ -1285,11 +1290,11 @@ void UiApp::RenameCurrentItem()
 	{
 		list->SetPendingSelection(sel_name);
 		list->Invalidate();
-		SetStatusText('I', "Renamed: %s", new_name);
+		SetStatusF('I', "Renamed: %s", new_name);
 	}
 	else
 	{
-		SetStatusText('E', "Rename failed: %s", old_name);
+		SetStatusF('E', "Rename failed: %s", old_name);
 	}
 }
 

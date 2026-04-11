@@ -202,9 +202,9 @@ static LocalFsTransport g_local;
 #include "UIAPP.CPP"
 static UiApp g_app;
 
-void SetStatusText(char type, const char *s)
+void SetStatusCB(char type, const char *s)
 {
-	g_app.SetStatusText(type, "%s", s);
+	g_app.SetStatus(type, s);
 	//Log(type, s);
 }
 
@@ -240,10 +240,10 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if( !g_local.Init(SetStatusText, &g_localList) )
+	if( !g_local.Init(SetStatusCB, &g_localList) )
 		return 1;
 
-	if( !g_ftp.Init(SetStatusText, &g_remoteList) )
+	if( !g_ftp.Init(SetStatusCB, &g_remoteList) )
 		return 1;
 
 	if( !g_ftp.ConnectAndLogin(g_hostArg, g_portArg, g_userArg, g_passArg) )
@@ -262,7 +262,7 @@ int main(int argc, char *argv[])
 
 	g_app.Loop();
 
-	g_app.Cleanup();
 	g_ftp.Cleanup();
+	g_app.Cleanup();
 	return 0;
 }
