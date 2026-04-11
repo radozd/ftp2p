@@ -213,6 +213,7 @@ private:
 	void DestroySockets();
 
 	void SetStatus(char type, const char *fmt, ...);
+	void Pulse();
 	bool FinalizeTransfer(TransferAction_t action, TransferResult_t result, const char *detail = NULL);
 	void SetTransferProgress(bool get, const char *name, uint32_t bytes, uint32_t totalBytes);
 	void CheckAbortKey();
@@ -329,7 +330,7 @@ FtpTransport::FtpTransport()
 	_nextDataPort = 0;
 	_pasvPort = 0;
 
-	_connectTimeout = 10000ul;
+	_connectTimeout = 15000ul;
 	SetTimeoutProfile(15000ul, 120000ul);
 }
 
@@ -573,6 +574,24 @@ void FtpTransport::SetStatus(char type, const char *fmt, ...)
 	va_end(ap);
 
 	UiStatusCallback(type, tmp);
+}
+
+void FtpTransport::Pulse()
+{
+	static const char s[] = { 0xB0, 0xB1, 0xB2, 0xDB, 0xB2, 0xB1 };
+	static unsigned i = 0;
+	static char st[2] = { '\0', '\0' };
+
+	static clockTicks_t last = 0;
+	clockTicks_t now = TIMER_GET_CURRENT();
+
+	uint32_t elapsed = (uint32_t)(Timer_diff(last, now) * TIMER_TICK_LEN);
+	if( elapsed >= 200 )
+	{
+		last = now;
+		st[0] = s[i++ % 6];
+		SetStatus('S', st);
+	}
 }
 
 bool FtpTransport::FinalizeTransfer(TransferAction_t action, TransferResult_t result, const char *detail)
@@ -858,6 +877,8 @@ bool FtpTransport::WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t 
 			SetStatus('W', "Abort");
 			return false;
 		}
+
+		Pulse();
 	}
 }
 
@@ -1465,6 +1486,7 @@ void FtpTransport::ProcessSocketInput()
 	if( rc < 0 )
 		SetStatus('W', "Response overflowed the buffer");
 
+	Pulse();
 	CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), buf);
 	AppendReplyLine(buf);
 	TouchScenarioActivity();
@@ -1732,6 +1754,8 @@ bool FtpTransport::ReadFileList()
 				if( line_len < sizeof(line) - 1 )
 					line[line_len++] = ch;
 			}
+
+			Pulse();
 		}
 
 		if( result == TransferInProgress &&
@@ -1857,6 +1881,8 @@ bool FtpTransport::ReceiveFile()
 				if( !_ctrlBreakDetected && ShouldUpdateProgress(last_tick, last_bytes, total_received) )
 					SetTransferProgress(true, target_filename, total_received, _activeTransfer.totalBytes);
 			}
+
+			Pulse();
 		}
 
 		if( result == TransferInProgress &&

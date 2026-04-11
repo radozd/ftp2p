@@ -275,8 +275,7 @@ private:
 	bool ConfirmOverwrite(bool remote, const char *name);
 
 	bool PanelHasName(bool remote, const char *name) const;
-	bool IsViewable(const UiEntry *e) const;
-	bool LoadQuickViewText(const char *fileName, char *text, size_t textSize, bool &truncated) const;
+	bool IsViewable(const UiEntry *e, bool &html) const;
 	void ShowQuickView(const char *title, const char *text, bool truncated);
 	void QuickViewCurrentItem();
 	void DoGet();
@@ -375,6 +374,12 @@ void UiApp::SetStatusText(char type, const char *fmt, ...)
 	va_start(ap, fmt);
 	SprintfTruncV(tmp, sizeof(tmp), fmt, ap);
 	va_end(ap);
+
+	if( type == 'S' )
+	{
+		PutChAtAttr(0, g_screenRows - 1, tmp[0], UI_ATTR_NORMAL);
+		return;
+	}
 
 	char *s = tmp;
 	while( *s == '\r' || *s == '\n' )
@@ -623,7 +628,7 @@ void UiApp::PrintStatus()
 	case 'Q': attr = UI_ATTR_STATUS_QUESTION; break;
 	case 'T': attr = UI_ATTR_STATUS_TRANSFER; break;
 	}
-	WritePadAt(0, g_screenRows-2, _lastStatus+1, g_screenCols, attr);
+	WritePadAt(0, g_screenRows-2, _lastStatus+1, g_screenCols-1, attr);
 }
 
 bool UiApp::AskYesNo(const char *fmt, ...)
@@ -754,57 +759,31 @@ bool UiApp::PanelHasName(bool remote, const char *name) const
 	return e != NULL && e->kind != 'p';
 }
 
-bool UiApp::IsViewable(const UiEntry *e) const
+bool UiApp::IsViewable(const UiEntry *e, bool &html) const
 {
 	if( e == NULL || e->name[0] == '\0' )
 		return false;
-	if( e->size > 65535ul )
+	if( e->size == 0 || e->size > 65535ul )
 		return false;
 
 	const char *ext = strrchr(e->name, '.');
 	if( ext == NULL || ext[1] == '\0' )
 		return false;
 
-	return stricmp(ext, ".bbs") == 0 ||
-		stricmp(ext, ".txt") == 0 ||
-		stricmp(ext, ".ion") == 0 ||
-		stricmp(ext, ".diz") == 0 ||
-		stricmp(ext, ".nfo") == 0;
-}
-
-bool UiApp::LoadQuickViewText(const char *fileName, char *text, size_t textSize, bool &truncated) const
-{
-	if( text == NULL || textSize < 2 || fileName == NULL || fileName[0] == '\0' )
-		return false;
-
-	text[0] = '\0';
-	truncated = false;
-
-	FILE *f = fopen(fileName, "rb");
-	if( f == NULL )
-		return false;
-
-	int ch;
-	size_t i = 0;
-	while( (ch = fgetc(f)) != EOF )
+	if( stricmp(ext, ".bbs") == 0 || stricmp(ext, ".txt") == 0 ||
+		stricmp(ext, ".ion") == 0 || stricmp(ext, ".diz") == 0 ||
+		stricmp(ext, ".nfo") == 0 )
 	{
-		if( ch == '\r' )
-			continue;
-
-		if( ch == '\t' )
-			ch = ' ';
-
-		text[i++] = (char)ch;	
-		if( i >= textSize-1 )
-		{
-			truncated = true;
-			break;
-		}
+		html = false;
+		return true;
 	}
 
-	text[i] = '\0';
-	fclose(f);
-	return true;
+	if( stricmp(ext, ".html") == 0 || stricmp(ext, ".htm") == 0 )
+	{
+		html = true;
+		return true;
+	}
+	return false;
 }
 
 void UiApp::ShowQuickView(const char *title, const char *text, bool truncated)
@@ -843,26 +822,32 @@ void UiApp::ShowQuickView(const char *title, const char *text, bool truncated)
 	}
 	WriteAt(x + 2, y, line, UI_ATTR_SELECTED);
 
-
 	const char *src = text != NULL ? text : "";
 	for( int row = 0; row < h - 2; row++ )
 	{
-		if( *src == '\n' )
+		while( *src == '\n' )
 			src++;
 
+		if( *src == '\0')
+			break;
+
+		bool blanks = true;
 		int col = 0;
 		while( *src && *src != '\n' && col < max_len )
+		{
+			if( *src != ' ' )
+				blanks = false;
 			line[col++] = *src++;
+		}
+
+		if( blanks )
+		{
+			row--;
+			continue;
+		}
 
 		line[col] = '\0';
 		WritePadAt(x + 1, y + 1 + row, line, max_len);
-
-		while( *src && *src != '\n' )
-			src++;
-		if( *src == '\n' )
-			src++;
-		if( *src == '\0' && col == 0 )
-			break;
 	}
 
 	if( truncated )
@@ -876,7 +861,8 @@ void UiApp::QuickViewCurrentItem()
 	if( !e || e->kind == 'p' || e->kind == 'd' )
 		return;
 
-	if( !IsViewable(e) )
+	bool html;
+	if( !IsViewable(e, html) )
 	{
 		SetStatusText('W', "View not available: %s", e->name);
 		return;
@@ -903,7 +889,7 @@ void UiApp::QuickViewCurrentItem()
 
 	static char text[4096];	
 	bool truncated = false;
-	bool ok = LoadQuickViewText(tmp, text, sizeof(text), truncated);
+	bool ok = !html ? LoadTextFile(tmp, text, sizeof(text), truncated) : LoadHtmlFile(tmp, text, sizeof(text), truncated);
 	if( del )
 		remove(tmp);
 

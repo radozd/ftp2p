@@ -258,8 +258,8 @@ static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, ui
 		return true;
 	}
 
-	uint32_t elapsedMs = (uint32_t)(Timer_diff(lastTick, now) * TIMER_TICK_LEN);
-	if( elapsedMs >= 500 )
+	uint32_t elapsed = (uint32_t)(Timer_diff(lastTick, now) * TIMER_TICK_LEN);
+	if( elapsed >= 500 )
 	{
 		lastBytes = bytesNow;
 		lastTick = now;
@@ -319,7 +319,8 @@ static int KeyAscii(uint16_t key)
 	return (int)(key & 0x00FF);
 }
 
-// Encoding
+// Encodings
+
 typedef enum
 {
 	OEM_ASCII,
@@ -870,4 +871,223 @@ bool MakeRemoteName(char *dst, size_t dstSize, const char *src, bool fromOem)
 
 	CopyTrunc(dst, dstSize, name);
 	return dst[0] != '\0';
+}
+
+// Text/html
+
+bool LoadTextFile(const char *fileName, char *text, size_t textSize, bool &truncated)
+{
+	if( text == NULL || textSize < 2 || fileName == NULL || fileName[0] == '\0' )
+		return false;
+
+	text[0] = '\0';
+	truncated = false;
+
+	FILE *f = fopen(fileName, "rb");
+	if( f == NULL )
+		return false;
+
+	int ch;
+	size_t i = 0;
+	while( (ch = fgetc(f)) != EOF )
+	{
+		if( ch == '\r' )
+			continue;
+
+		if( ch == '\t' )
+			ch = ' ';
+
+		text[i++] = (char)ch;	
+		if( i >= textSize-1 )
+		{
+			truncated = true;
+			break;
+		}
+	}
+
+	text[i] = '\0';
+	fclose(f);
+	return true;
+}
+
+static int ReadCh(FILE *f)
+{
+	int ch;
+
+	for( ;; )
+	{
+		ch = fgetc(f);
+		if( ch != '\r' )
+			break;
+	}
+
+	if( ch == '\t' )
+		ch = ' ';
+
+	return ch;
+}
+
+static bool TagNameEq(const char *tag, const char *name)
+{
+	while( *tag && *name )
+	{
+		if( ToLowerAsciiCh((unsigned char)*tag) != ToLowerAsciiCh((unsigned char)*name) )
+			return false;
+
+		tag++;
+		name++;
+	}
+
+	return *tag == '\0' && *name == '\0';
+}
+
+bool LoadHtmlFile(const char *fileName, char *text, size_t textSize, bool &truncated)
+{
+	if( text == NULL || textSize < 2 || fileName == NULL || fileName[0] == '\0' )
+		return false;
+
+	text[0] = '\0';
+	truncated = false;
+
+	FILE *f = fopen(fileName, "rb");
+	if( f == NULL )
+		return false;
+
+	size_t i = 0;
+	bool have_body = false;
+	bool in_body = false;
+
+	int ch;
+	while( (ch = ReadCh(f)) != EOF )
+	{
+		if( ch == '<' )
+		{
+			char tag[16];
+			int n = 0;
+			bool closing = false;
+
+			ch = ReadCh(f);
+			while( ch == ' ' || ch == '\n' )
+				ch = ReadCh(f);
+
+			if( ch == '/' )
+			{
+				closing = true;
+				ch = ReadCh(f);
+
+				while( ch == ' ' || ch == '\n' )
+					ch = ReadCh(f);
+			}
+
+			while( ch != EOF )
+			{
+				if( ch == '>' || ch == '/' || ch == ' ' || ch == '\n' )
+					break;
+
+				if( n < (int)sizeof(tag) - 1 )
+					tag[n++] = (char)ch;
+
+				ch = ReadCh(f);
+			}
+			tag[n] = '\0';
+
+			if( TagNameEq(tag, "body") )
+			{
+				have_body = true;
+
+				if( closing )
+					break;
+
+				in_body = true;
+			}
+			else if( !closing )
+			{
+				if( (!have_body || in_body) && TagNameEq(tag, "br") )
+				{
+					if( i > 0 && text[i - 1] != '\n' )
+					{
+						text[i++] = '\n';
+						if( i >= textSize - 1 )
+						{
+							truncated = true;
+							break;
+						}
+					}
+				}
+			}
+			else
+			{
+				if( !have_body || in_body )
+				{
+					if( TagNameEq(tag, "p") || TagNameEq(tag, "div") || TagNameEq(tag, "tr") ||
+						TagNameEq(tag, "li") || TagNameEq(tag, "ul") || TagNameEq(tag, "ol") ||
+						TagNameEq(tag, "table") ||
+						TagNameEq(tag, "h1") || TagNameEq(tag, "h2") || TagNameEq(tag, "h3") ||
+						TagNameEq(tag, "h4") || TagNameEq(tag, "h5") || TagNameEq(tag, "h6") )
+					{
+						if( i > 0 && text[i - 1] != '\n' )
+						{
+							text[i++] = '\n';
+							if( i >= textSize - 1 )
+							{
+								truncated = true;
+								break;
+							}
+						}
+					}
+				}
+			}
+
+			while( ch != EOF && ch != '>' )
+				ch = ReadCh(f);
+
+			continue;
+		}
+
+		if( have_body && !in_body )
+			continue;
+
+		if( ch == '&' )
+		{
+			char ent[8];
+			int n = 0;
+
+			while( (ch = ReadCh(f)) != EOF )
+			{
+				if( n < (int)sizeof(ent) - 1 )
+					ent[n++] = (char)ch;
+
+				if( ch == ';' || ch == ' ' || ch == '\n' || ch == '<' || ch == '&' )
+					break;
+			}
+			ent[n] = '\0';
+
+			if( strcmp(ent, "nbsp;") == 0 )
+				ch = ' ';
+			else if( strcmp(ent, "lt;") == 0 )
+				ch = '<';
+			else if( strcmp(ent, "gt;") == 0 )
+				ch = '>';
+			else if( strcmp(ent, "amp;") == 0 )
+				ch = '&';
+			else if( strcmp(ent, "quot;") == 0 )
+				ch = '"';
+			else
+				continue;
+		}
+
+		text[i++] = (char)ch;
+		if( i >= textSize - 1 )
+		{
+			truncated = true;
+			break;
+		}
+	}
+
+	while( i > 0 && (text[i - 1] == '\n' || text[i - 1] == ' ' || text[i - 1] == '\t') )
+		i--;
+
+	text[i] = '\0';
+	fclose(f);
+	return true;
 }
