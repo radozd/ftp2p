@@ -771,6 +771,14 @@ bool UiApp::IsViewable(const UiEntry *e, bool &html) const
 	if( e->size == 0 || e->size > 65535ul )
 		return false;
 
+	html = false;
+
+	if( stricmp(e->name, "00_INDEX") == 0 || stricmp(e->name, "FILES") == 0 ||
+		stricmp(e->name, "INDEX") == 0 || stricmp(e->name, "00README") == 0 )
+	{
+		return true;
+	}
+
 	const char *ext = strrchr(e->name, '.');
 	if( ext == NULL || ext[1] == '\0' )
 		return false;
@@ -779,7 +787,6 @@ bool UiApp::IsViewable(const UiEntry *e, bool &html) const
 		stricmp(ext, ".ion") == 0 || stricmp(ext, ".diz") == 0 ||
 		stricmp(ext, ".nfo") == 0 )
 	{
-		html = false;
 		return true;
 	}
 
@@ -920,7 +927,7 @@ void UiApp::DoGet()
 		return;
 
 	char name[LOCALFILE_MAX_LEN];
-	if( !MakeDosName(name, e->name, !g_noUtf8Arg) )
+	if( !MakeDosName(name, e->name) )
 	{
 		SetStatusF('E', "Invalid local DOS name for GET");
 		return;
@@ -942,7 +949,7 @@ void UiApp::DoPut()
 		return;
 
 	char name[UI_NAME_MAX * 3];
-	if( !MakeRemoteName(name, sizeof(name), e->name, true) )
+	if( !MakeRemoteName(name, sizeof(name), e->name) )
 	{
 		SetStatusF('E', "Invalid remote name for PUT");
 		return;
@@ -986,13 +993,13 @@ void UiApp::CopySelectedItems()
 		if( IsRemoteActive() )
 		{
 			char name[LOCALFILE_MAX_LEN];
-			if( MakeDosName(name, e->name, !g_noUtf8Arg) && ConfirmOverwrite(false, name) )
+			if( MakeDosName(name, e->name) && ConfirmOverwrite(false, name) )
 				ok = g_ftp.DoGetAndWait(e->name, name, e->size);
 		}
 		else
 		{
 			char name[UI_NAME_MAX * 3];
-			if( MakeRemoteName(name, sizeof(name), e->name, true) && ConfirmOverwrite(true, name) )
+			if( MakeRemoteName(name, sizeof(name), e->name) && ConfirmOverwrite(true, name) )
 				ok = g_ftp.DoPutAndWait(e->name, name, e->size);
 		}
 
@@ -1210,7 +1217,7 @@ void UiApp::MakeDirInCurrentPanel()
 
 	if( IsRemoteActive() )
 	{
-		if( !MakeRemoteName(remote_name, sizeof(remote_name), name, true) )
+		if( !MakeRemoteName(remote_name, sizeof(remote_name), name) )
 		{
 			SetStatusF('E', "Invalid remote name");
 			return;
@@ -1266,7 +1273,7 @@ void UiApp::RenameCurrentItem()
 
 	if( IsRemoteActive() )
 	{
-		if( !MakeRemoteName(remote_new_name, sizeof(remote_new_name), new_name, true) )
+		if( !MakeRemoteName(remote_new_name, sizeof(remote_new_name), new_name) )
 		{
 			SetStatusF('E', "Invalid remote name");
 			return;

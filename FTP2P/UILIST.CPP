@@ -244,7 +244,11 @@ void UiList::PrintCwd(char *dst, int maxw)
 	char tmp[160];
 	if( !_dosNames && !g_noUtf8Arg )
 	{
-		Utf8ToOem(tmp, sizeof(tmp), _cwd, g_Encoding);
+		if( g_simpleUtf8 )
+			Utf8ToDosNameCharset(tmp, sizeof(tmp), _cwd);
+		else
+			Utf8ToOem(tmp, sizeof(tmp), _cwd);
+
 		name = tmp;
 	}
 
@@ -257,8 +261,8 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 {
 	if( dst == NULL || maxw <= 0 )
 		return;
+	
 	dst[0] = '\0';
-
 	if( !e )
 		return;
 
@@ -272,7 +276,10 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 	char tmp[160];
 	if( !_dosNames && !g_noUtf8Arg )
 	{
-		Utf8ToOem(tmp, sizeof(tmp), name, g_Encoding);
+		if( g_simpleUtf8 )
+			Utf8ToDosNameCharset(tmp, sizeof(tmp), name);
+		else
+			Utf8ToOem(tmp, sizeof(tmp), name);
 		name = tmp;
 	}
 
@@ -298,8 +305,8 @@ void UiList::PrintStats(char *dst, int maxw, UiEntry *e)
 {
 	if( dst == NULL || maxw <= 0 )
 		return;
+	
 	dst[0] = '\0';
-
 	if( e == NULL || e->kind == 'p' || e->kind == 'd' )
 		return;
 
@@ -595,20 +602,23 @@ void UiList::UpdateEncoding()
 	if( _count < 2 )
 		return;
 
-	int cp850 = 0;
-	int cp866 = 0;
+	unsigned cp850 = 0;
+	unsigned cp852 = 0;
+	unsigned cp866 = 0;
 
 	for( int i = 0; i < _count; i++ )
 	{
 		UiEntry *e = &_items[i];
 		if( e != NULL && e->kind != 'p' )
-			CountDetectedCodePageChars(e->name, cp850, cp866);
+			CountOemChars(e->name, cp850, cp852, cp866);
 	}
 
-	if( cp866 > cp850 )
-		g_Encoding = OEM_CP866;
-	else if( cp850 > cp866 )
-		g_Encoding = OEM_CP850;
-	else if( cp850 == 0 && cp866 == 0 )
-		g_Encoding = OEM_ASCII;
+	if( cp866 > cp852 && cp866 > cp850 )
+		g_encoding = OEM_CP866;
+	else if( cp852 > cp850 )
+		g_encoding = OEM_CP852;
+	else if( cp850 > 0 )
+		g_encoding = OEM_CP850;
+	else
+		g_encoding = OEM_ASCII;
 }

@@ -1690,7 +1690,7 @@ bool FtpTransport::ParsePASVResponse(char *pos)
 		return false;
 	}
 
-	uint16_t t0, t1, t2, t3, t4, t5;
+	unsigned int t0, t1, t2, t3, t4, t5;
 	int rc = sscanf(pos, "%d,%d,%d,%d,%d,%d", &t0, &t1, &t2, &t3, &t4, &t5);
 	if( rc != 6 )
 	{

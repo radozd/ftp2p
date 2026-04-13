@@ -38,7 +38,20 @@
 #include "timer.h"
 
 
+#define FTPSERVERNAME_MAX_LEN (64)
+#define USERNAME_MAX_LEN      (64)
+#define PASSWORD_MAX_LEN      (40)
+
+static char g_hostArg[FTPSERVERNAME_MAX_LEN];
+static uint16_t g_portArg;
+static char g_userArg[USERNAME_MAX_LEN];
+static char g_passArg[PASSWORD_MAX_LEN];
+static bool g_noUtf8Arg;
+static bool g_simpleUtf8;
+
+
 #include "UTIL.CPP"
+#include "ENCODING.CPP"
 
 void Log(char type, const char *s)
 {
@@ -71,16 +84,6 @@ void Log(char type, const char *s)
 }
 
 /* ------------------------------------------------------------------------- */
-#define FTPSERVERNAME_MAX_LEN (64)
-#define USERNAME_MAX_LEN      (64)
-#define PASSWORD_MAX_LEN      (40)
-
-static char g_hostArg[FTPSERVERNAME_MAX_LEN];
-static uint16_t g_portArg;
-static char g_userArg[USERNAME_MAX_LEN];
-static char g_passArg[PASSWORD_MAX_LEN];
-static bool g_noUtf8Arg;
-
 static bool ParseHostPort(const char *src)
 {
 	char tmp[FTPSERVERNAME_MAX_LEN];
@@ -158,6 +161,10 @@ static bool ParseArgs(int argc, char *argv[])
 		{
 			g_noUtf8Arg = true;
 		}
+		else if( strcmp(arg, "-simple-utf8") == 0 )
+		{
+			g_simpleUtf8 = true;
+		}
 		else if( arg[0] == '-' )
 		{
 			return false;
@@ -227,6 +234,7 @@ int main(int argc, char *argv[])
 		printf("  -u user       User name\n");
 		printf("  -p pass       Password\n");
 		printf("  -no-utf8      Disable UTF-8 file name conversion\n");
+		printf("  -simple-utf8  Fold UTF-8 diacritics to ASCII (CP850/852)\n");
 		printf("\n");
 		printf("Dual-pane MS-DOS FTP client: left=remote, right=local.\n");
 		printf("Ops: cd/get/put/rename/mkdir/delete, multi-file copy.\n");
@@ -239,6 +247,8 @@ int main(int argc, char *argv[])
 		printf("      F9 overwrite policy: ASK/SKIP/OVRW\n");
 		return 1;
 	}
+
+	InitDosCharset();
 
 	if( !g_local.Init(SetStatusCB, &g_localList) )
 		return 1;
