@@ -216,10 +216,11 @@ void SetStatusCB(char type, const char *s)
 }
 
 /* ------------------------------------------------------------------------- */
+#define APP_VERSION "v3.2"
 
 int main(int argc, char *argv[])
 {
-	printf("FTP2P by Konstantin Bortnikov (radozd@ya.ru) (C)opyright 2026\nVersion: " __DATE__ "\n");
+	printf("FTP2P by Konstantin Bortnikov (radozd@ya.ru) (C)opyright 2026\nVersion: " APP_VERSION ", " __DATE__ "\n");
 
 	if( !g_remoteList.Ok() || !g_localList.Ok() )
 	{
