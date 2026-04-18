@@ -190,12 +190,10 @@ static bool ParseArgs(int argc, char *argv[])
 typedef void (*StatusCallback)(char type, const char *s);
 
 /* ------------------------------------------------------------------------- */
-static uint8_t far *g_screen = NULL;
-static uint16_t g_screenRows = 25;
-static uint16_t g_screenCols = 80;
+#include "UISCREEN.CPP"
+static UiScreen g_screen;
 /* ------------------------------------------------------------------------- */
 #include "UILIST.CPP"
-
 #define UI_MAX_ITEMS (2000)
 static UiList g_remoteList(UI_MAX_ITEMS, false);
 static UiList g_localList(UI_MAX_ITEMS, true);
@@ -206,17 +204,22 @@ static FtpTransport g_ftp;
 #include "FSLOCAL.CPP"
 static LocalFsTransport g_local;
 /* ------------------------------------------------------------------------- */
+#include "UIVIEW.CPP"
+/* ------------------------------------------------------------------------- */
 #include "UIAPP.CPP"
 static UiApp g_app;
 
 void SetStatusCB(char type, const char *s)
 {
+	if( !g_screen.IsReady() )
+		return;
+
 	g_app.SetStatus(type, s);
 	//Log(type, s);
 }
 
 /* ------------------------------------------------------------------------- */
-#define APP_VERSION "v3.3"
+#define APP_VERSION "v3.4"
 
 int main(int argc, char *argv[])
 {

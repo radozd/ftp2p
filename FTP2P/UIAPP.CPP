@@ -62,174 +62,7 @@ enum
 	CH_SHADE = 176  // ░
 };
 
-enum {
-	EGA_BLACK          = 0x0,
-	EGA_BLUE           = 0x1,
-	EGA_GREEN          = 0x2,
-	EGA_CYAN           = 0x3,
-	EGA_RED            = 0x4,
-	EGA_MAGENTA        = 0x5,
-	EGA_BROWN          = 0x6,
-	EGA_LIGHT_GRAY     = 0x7,
-	EGA_DARK_GRAY      = 0x8,
-	EGA_LIGHT_BLUE     = 0x9,
-	EGA_LIGHT_GREEN    = 0xA,
-	EGA_LIGHT_CYAN     = 0xB,
-	EGA_LIGHT_RED      = 0xC,
-	EGA_LIGHT_MAGENTA  = 0xD,
-	EGA_YELLOW         = 0xE,
-	EGA_WHITE          = 0xF
-};
-
-#define UI_ATTR(fg, bg) (((bg) << 4) | (fg))
-
-#define UI_ATTR_NORMAL            UI_ATTR(EGA_LIGHT_GRAY, EGA_BLACK)
-#define UI_ATTR_SELECTED          UI_ATTR(EGA_BLACK, EGA_LIGHT_GRAY)
-#define UI_ATTR_DIRECTORY         UI_ATTR(EGA_WHITE, EGA_BLACK)
-#define UI_ATTR_MARKED            UI_ATTR(EGA_YELLOW, EGA_BLACK)
-#define UI_ATTR_MARKED_CURRENT    UI_ATTR(EGA_YELLOW, EGA_LIGHT_GRAY)
-#define UI_ATTR_FOOTER_TEXT       UI_ATTR(EGA_BLACK, EGA_LIGHT_GRAY)
-
-#define UI_ATTR_STATUS_OK         UI_ATTR(EGA_LIGHT_GRAY, EGA_BLACK)
-#define UI_ATTR_STATUS_WARNING    UI_ATTR(EGA_YELLOW, EGA_BLACK)
-#define UI_ATTR_STATUS_ERROR      UI_ATTR(EGA_LIGHT_RED, EGA_BLACK)
-#define UI_ATTR_STATUS_QUESTION   UI_ATTR(EGA_LIGHT_GREEN, EGA_BLACK)
-#define UI_ATTR_STATUS_TRANSFER   UI_ATTR(EGA_CYAN, EGA_BLACK)
-
 #define UI_KEY_CONTROL_CLOSED 0xFFFFu
-
-/* ------------------------------------------------------------------------- */
-
-class UiScreenSnapshot
-{
-public:
-	UiScreenSnapshot();
-	~UiScreenSnapshot();
-
-	void Capture(uint8_t far *screen, uint8_t cols, uint8_t rows);
-	void Restore(uint8_t far *screen);
-	void HideCursor();
-	void ShowCursor();
-
-private:
-	uint16_t _savedScreenBytes;
-	uint16_t _savedScreenCapacity;
-	uint8_t _savedCursorStart;
-	uint8_t _savedCursorEnd;
-	uint8_t _savedCursorX;
-	uint8_t _savedCursorY;
-	uint8_t *_savedScreen;
-	bool _valid;
-};
-
-UiScreenSnapshot::UiScreenSnapshot()
-{
-	_savedScreenBytes = 0;
-	_savedScreenCapacity = 0;
-	_savedCursorStart = 6;
-	_savedCursorEnd = 7;
-	_savedCursorX = 0;
-	_savedCursorY = 0;
-	_savedScreen = NULL;
-	_valid = false;
-}
-
-UiScreenSnapshot::~UiScreenSnapshot()
-{
-	if( _savedScreen != NULL )
-	{
-		free(_savedScreen);
-		_savedScreen = NULL;
-	}
-	_savedScreenBytes = 0;
-	_savedScreenCapacity = 0;
-	_valid = false;
-}
-
-void UiScreenSnapshot::HideCursor()
-{
-	union REGS r;
-	r.h.ah = 0x01;
-	r.x.cx = 0x2607;
-	int86(0x10, &r, &r);
-}
-
-void UiScreenSnapshot::ShowCursor()
-{
-	union REGS r;
-	r.h.ah = 0x01;
-	r.x.cx = 0x0607;
-	int86(0x10, &r, &r);
-}
-
-void UiScreenSnapshot::Capture(uint8_t far *screen, uint8_t cols, uint8_t rows)
-{
-	if( !screen )
-		return;
-
-	union REGS r;
-	r.h.ah = 0x03;
-	r.h.bh = 0x00;
-	int86(0x10, &r, &r);
-
-	_savedCursorStart = r.h.ch;
-	_savedCursorEnd = r.h.cl;
-	_savedCursorX = r.h.dl;
-	_savedCursorY = r.h.dh;
-
-	uint32_t bytes32 = (uint32_t)rows * (uint32_t)cols * 2ul;
-	if( bytes32 > 65535ul )
-		bytes32 = 65535ul;
-
-	uint16_t bytes = (uint16_t)bytes32;
-	if( bytes > _savedScreenCapacity )
-	{
-		uint8_t *newBuf = (uint8_t *)realloc(_savedScreen, bytes);
-		if( newBuf == NULL )
-		{
-			_valid = false;
-			_savedScreenBytes = 0;
-			return;
-		}
-
-		_savedScreen = newBuf;
-		_savedScreenCapacity = bytes;
-	}
-
-	_savedScreenBytes = bytes;
-	for( uint16_t i = 0; i < _savedScreenBytes; i++ )
-		_savedScreen[i] = screen[i];
-
-	_valid = true;
-}
-
-void UiScreenSnapshot::Restore(uint8_t far *screen)
-{
-	if( !_valid || !screen || _savedScreen == NULL )
-	{
-		ShowCursor();
-		return;
-	}
-
-	for( uint16_t i = 0; i < _savedScreenBytes; i++ )
-		screen[i] = _savedScreen[i];
-
-	union REGS r;
-	r.h.ah = 0x01;
-	r.h.ch = _savedCursorStart;
-	r.h.cl = _savedCursorEnd;
-	int86(0x10, &r, &r);
-
-	r.h.ah = 0x02;
-	r.h.bh = 0x00;
-	r.h.dh = _savedCursorY;
-	r.h.dl = _savedCursorX;
-	int86(0x10, &r, &r);
-
-	_valid = false;
-}
-
-/* ------------------------------------------------------------------------- */
 
 class UiApp
 {
@@ -248,11 +81,9 @@ private:
 	bool _remoteActive;
 	bool _panelsRTL;
 	int _panelMid;
-	bool _screenReady;
 	bool _needRedraw;
 	char _lastStatus[160];
 	char _copyPolicy[5];
-	UiScreenSnapshot _screenSnapshot;
 	
 	void Redraw();
 
@@ -277,7 +108,7 @@ private:
 
 	bool PanelHasName(bool remote, const char *name) const;
 	bool IsViewable(const UiEntry *e, bool &html) const;
-	void ShowQuickView(const char *title, const char *text, bool truncated);
+	void ShowQuickView(const char *title, FileFormatter &fmt);
 	void QuickViewCurrentItem();
 	void DoGet();
 	void DoPut();
@@ -292,11 +123,6 @@ private:
 	void MakeDirInCurrentPanel();
 	void RenameCurrentItem();
 
-	void PutChAt(int x, int y, int ch);
-	void PutChAtAttr(int x, int y, int ch, uint8_t attr);
-	void WritePadAt(int x, int y, const char *s, int w, uint8_t attr=UI_ATTR_NORMAL);
-	void WriteFillAt(int x, int y, int count, int ch);
-	void WriteAt(int x, int y, const char *s, uint8_t attr=UI_ATTR_NORMAL);
 	void FormatSelectedStats(char *dst, size_t dstSize, UiList *lst);
 	void FormatFreeSpace(char *dst, size_t dstSize, UiList *lst);
 	void DrawPanel(int x, int y, int w, int h, UiList *lst, bool active);
@@ -307,7 +133,6 @@ UiApp::UiApp()
 	_remoteActive = true;
 	_panelsRTL = false;
 	_panelMid = 40;
-	_screenReady = false;
 	_needRedraw = true;
 	_lastStatus[0] = '\0';
 	strcpy(_copyPolicy, "ASK ");
@@ -315,63 +140,28 @@ UiApp::UiApp()
 
 bool UiApp::InitScreen()
 {
-	uint8_t screenMode = *((uint8_t far *)MK_FP(0x40, 0x49));
-	if( screenMode == 7 )
-		g_screen = (uint8_t far *)MK_FP(0xb000, 0);
-	else
-		g_screen = (uint8_t far *)MK_FP(0xb800, 0);
-
-	if( getEgaMemSize() == 0x10 )
-	{
-		g_screenCols = 80;
-		g_screenRows = 25;
-	}
-	else
-	{
-		g_screenCols = *((uint8_t far *)MK_FP(0x40, 0x4A));
-		g_screenRows = *((uint8_t far *)MK_FP(0x40, 0x84)) + 1;
-	}
-
-	if( g_screenCols < 80 || g_screenRows < 25 )
-	{
-		printf("Unsupported text mode: %ux%u. Please use 80x25 or larger.\n", g_screenCols, g_screenRows);
+	if( !g_screen.Init() )
 		return false;
-	}
 
-	_panelMid = g_screenCols / 2;
+	_panelMid = g_screen.Cols() / 2;
 
-	_screenReady = true;
-	_screenSnapshot.Capture(g_screen, g_screenCols, g_screenRows);
-	_screenSnapshot.HideCursor();
-	ClearScreen();
+	g_screen.Capture();
+	g_screen.HideCursor();
+	g_screen.Clear();
 	
 	return true;
 }
 
-void UiApp::ClearScreen()
-{
-	if( !g_screen )
-		return;
-
-	int cells = g_screenRows * g_screenCols;
-	for( int i = 0; i < cells; i++ )
-	{
-		g_screen[i * 2]     = ' ';
-		g_screen[i * 2 + 1] = UI_ATTR_NORMAL;
-	}
-	gotoxy(1, 1);
-}
-
 void UiApp::Cleanup()
 {
-	_screenSnapshot.Restore(g_screen);
+	g_screen.Restore();
 }
 
 void UiApp::SetStatus(char type, const char *s)
 {
 	if( type == 'S' )
 	{
-		PutChAtAttr(0, g_screenRows - 1, s[0], UI_ATTR_NORMAL);
+		g_screen.PutChAtAttr(0, g_screen.Rows() - 1, s[0], UI_ATTR_NORMAL);
 		return;
 	}
 
@@ -413,7 +203,7 @@ void UiApp::Loop()
 	g_localList.Invalidate();
 	g_remoteList.Invalidate();
 
-	while( 1 )
+	while( true )
 	{
 		if( g_localList.NeedRefresh() )
 		{
@@ -493,14 +283,14 @@ void UiApp::Loop()
 			if( shift && key == UI_KEY_LEFT )
 				_needRedraw = MovePanelSplit(-4);
 			else
-				_needRedraw = GetActiveList()->MoveSel(-(g_screenRows - 6));
+				_needRedraw = GetActiveList()->MoveSel(-(g_screen.Rows() - 6));
 		}
 		else if( key == UI_KEY_PGDN || key == UI_KEY_RIGHT )
 		{
 			if( shift && key == UI_KEY_RIGHT )
 				_needRedraw = MovePanelSplit(4);
 			else
-				_needRedraw = GetActiveList()->MoveSel(g_screenRows - 6);
+				_needRedraw = GetActiveList()->MoveSel(g_screen.Rows() - 6);
 		}
 		else if( key == UI_KEY_HOME )
 		{
@@ -563,17 +353,17 @@ void UiApp::Loop()
 
 void UiApp::Redraw()
 {
-	int panel_h = g_screenRows - 2;
+	int panel_h = g_screen.Rows() - 2;
 	UiList *left   = _panelsRTL ? &g_localList  : &g_remoteList;
 	UiList *right  = _panelsRTL ? &g_remoteList : &g_localList;
 
 	DrawPanel(0, 0, _panelMid, panel_h, left, _panelsRTL != _remoteActive);
-	DrawPanel(_panelMid, 0, g_screenCols - _panelMid, panel_h, right, _panelsRTL == _remoteActive);
+	DrawPanel(_panelMid, 0, g_screen.Cols() - _panelMid, panel_h, right, _panelsRTL == _remoteActive);
 	PrintStatus();
 
 	char footer[160];
 	SprintfTrunc(footer, sizeof(footer), "   F3 View   F5 Copy   F6 Rename   F7 MkDir   F8 Delete   F9 %s   F10 Quit", GetCopyPolicy());
-	WritePadAt(0, g_screenRows - 1, footer, g_screenCols, UI_ATTR_FOOTER_TEXT);
+	g_screen.WritePadAt(0, g_screen.Rows() - 1, footer, g_screen.Cols(), UI_ATTR_FOOTER_TEXT);
 }
 
 bool UiApp::MovePanelSplit(int delta)
@@ -583,8 +373,8 @@ bool UiApp::MovePanelSplit(int delta)
 
 	if( _panelMid < UI_PANEL_MIN_WIDTH )
 		_panelMid = UI_PANEL_MIN_WIDTH;
-	if( _panelMid > g_screenCols - UI_PANEL_MIN_WIDTH )
-		_panelMid = g_screenCols - UI_PANEL_MIN_WIDTH;
+	if( _panelMid > g_screen.Cols() - UI_PANEL_MIN_WIDTH )
+		_panelMid = g_screen.Cols() - UI_PANEL_MIN_WIDTH;
 
 	return old != _panelMid;
 }
@@ -599,7 +389,7 @@ bool UiApp::IsShiftPressed() const
 
 uint16_t UiApp::ReadKey()
 {
-	while( 1 )
+	while( true )
 	{
 		g_ftp.PollControlSocket(50);
 		if( g_ftp.IsControlClosed() )
@@ -620,10 +410,7 @@ void UiApp::FlushKeys()
 }
 
 void UiApp::PrintStatus()
-{
-	if( !_screenReady )
-		return;
-	
+{	
 	uint8_t attr = UI_ATTR_NORMAL;
 	switch( _lastStatus[0] )
 	{
@@ -633,7 +420,7 @@ void UiApp::PrintStatus()
 	case 'Q': attr = UI_ATTR_STATUS_QUESTION; break;
 	case 'T': attr = UI_ATTR_STATUS_TRANSFER; break;
 	}
-	WritePadAt(0, g_screenRows-2, _lastStatus+1, g_screenCols-1, attr);
+	g_screen.WritePadAt(0, g_screen.Rows()-2, _lastStatus+1, g_screen.Cols()-1, attr);
 }
 
 bool UiApp::AskYesNo(const char *fmt, ...)
@@ -647,7 +434,7 @@ bool UiApp::AskYesNo(const char *fmt, ...)
 
 	SetStatusF('Q', "%s [Y/N]", tmp);
 
-	while( 1 )
+	while( true )
 	{
 		uint16_t key = ReadKey();
 		if( key == UI_KEY_CONTROL_CLOSED )
@@ -678,7 +465,7 @@ bool UiApp::AskString(char *buf, size_t bufSize, const char *title, const char *
 	CopyTrunc(buf, (size_t)bufSize, initialValue ? initialValue : "");
 	size_t len = strlen(buf);
 
-	while( 1 )
+	while( true )
 	{
 		SetStatusF('Q', "%s: %s_", title ? title : "Input", buf);
 
@@ -798,72 +585,83 @@ bool UiApp::IsViewable(const UiEntry *e, bool &html) const
 	return false;
 }
 
-void UiApp::ShowQuickView(const char *title, const char *text, bool truncated)
+void UiApp::ShowQuickView(const char *title, FileFormatter &fmt)
 {
-	int w = g_screenCols - 4;
-	int h = g_screenRows - 4;
-	int x = 2;
-	int y = 1;
-
-	for( int row = 1; row < h - 1; row++ )
+	if( fmt.GetSize() <= 0 )
 	{
-		PutChAt(x, y + row, CH_V);
-		WriteFillAt(x+1, y + row, w - 2, ' ');
-		PutChAt(x + w - 1, y + row, CH_V);
+		SetStatus('W', "Nothing to see here");
+		return;
 	}
+	SetStatus('I', "");
 
-	PutChAt(x, y, CH_UL);
-	PutChAt(x + w - 1, y, CH_UR);
-	PutChAt(x, y + h - 1, CH_LL);
-	PutChAt(x + w - 1, y + h - 1, CH_LR);
-	WriteFillAt(x + 1, y, w - 2, CH_H);
-	WriteFillAt(x + 1, y + h - 1, w - 2, CH_H);
+	g_screen.WritePadAt(0, g_screen.Rows() - 1, "   F3/Esc Exit", g_screen.Cols(), UI_ATTR_FOOTER_TEXT);
 
-	char line[160];
-	int max_len = sizeof(line) - 1;
-	if( max_len > w - 2 )
-		max_len = w - 2;
-
-	if( title == NULL || title[0] == '\0' )
-		CopyTrunc(line, max_len, " View ");
-	else
+	char line[256];
+	bool eof = false;
+	while( true )
 	{
-		line[0] = ' ';
-		CropRight(line + 1, max_len - 3, title);
-		strcat(line, " ");
-	}
-	WriteAt(x + 2, y, line, UI_ATTR_SELECTED);
+		FlushKeys();
 
-	const char *src = text != NULL ? text : "";
-	for( int row = 0; row < h - 2; row++ )
-	{
-		while( *src == '\n' )
-			src++;
+		long pos = fmt.GetPos();
+		eof = false;
+		for( int row = 0; row < g_screen.Rows() - 1; row++ )
+		{
+			if( eof )
+			{
+				g_screen.WritePadAt(0, row, "", g_screen.Cols());
+				continue;
+			}
 
-		if( *src == '\0')
+			long next = fmt.GetLine(pos, line, sizeof(line));
+			g_screen.WritePadAt(0, row, line, g_screen.Cols());
+
+			if( next <= pos )
+				eof = true;
+
+			pos = next;
+		}
+
+		int percent = (int)((pos * 100L) / fmt.GetSize());
+		if( percent > 100 )
+			percent = 100;
+
+		SprintfTrunc(line, sizeof(line), " %3d%% ", percent);
+		g_screen.WriteAt(g_screen.Cols() - (int)strlen(line) - 1, g_screen.Rows() - 1, line, UI_ATTR_SELECTED);
+
+		uint16_t key = ReadKey();
+		if( key == UI_KEY_CONTROL_CLOSED || key == UI_KEY_ESC || key == UI_KEY_F3 || KeyAscii(key) == 27 )
 			break;
 
-		bool blanks = true;
-		int col = 0;
-		while( *src && *src != '\n' && col < max_len )
+		switch( key )
 		{
-			if( *src != ' ' )
-				blanks = false;
-			line[col++] = *src++;
-		}
+		case UI_KEY_HOME:
+			fmt.Home();
+			continue;
 
-		if( blanks )
-		{
-			row--;
+		case UI_KEY_END:
+			if( !eof )
+				fmt.End();
+			continue;
+
+		case UI_KEY_UP:
+			fmt.PrevLine();
+			continue;
+
+		case UI_KEY_DOWN:
+			if( !eof )
+				fmt.NextLine();
+			continue;
+
+		case UI_KEY_PGUP:
+			fmt.PgUp();
+			continue;
+
+		case UI_KEY_PGDN:
+			if( !eof )
+				fmt.PgDn();
 			continue;
 		}
-
-		line[col] = '\0';
-		WritePadAt(x + 1, y + 1 + row, line, max_len);
 	}
-
-	if( truncated )
-		WriteAt(x + w - 15, y + h - 1, " truncated ", UI_ATTR_SELECTED);
 }
 
 void UiApp::QuickViewCurrentItem()
@@ -880,42 +678,46 @@ void UiApp::QuickViewCurrentItem()
 		return;
 	}
 
+	char src[LOCALFILE_MAX_LEN];
 	char tmp[LOCALFILE_MAX_LEN];
-	bool del = false;
+	bool cleanup = false;
+
+	CopyTrunc(tmp, sizeof(tmp), "ftp2p.tmp");
+	remove(tmp);
 
 	if( IsRemoteActive() )
 	{
-		CopyTrunc(tmp, sizeof(tmp), "ftp2p.tmp");
-		remove(tmp);
+		CopyTrunc(src, sizeof(src), "ftp2p.$$$");
+		remove(src);
 
 		FtpTransport::_ctrlBreakDetected = false;
-		if( !g_ftp.DoGetAndWait(e->name, tmp, e->size) )
+		if( !g_ftp.DoGetAndWait(e->name, src, e->size) )
 			return;
 
-		del = true;
+		cleanup = true;
 	}
 	else
 	{
-		CopyTrunc(tmp, sizeof(tmp), e->name);
+		CopyTrunc(src, sizeof(src), e->name);
 	}
 
-	static char text[4096];	
-	bool truncated = false;
-	bool ok = !html ? LoadTextFile(tmp, text, sizeof(text), truncated) : LoadHtmlFile(tmp, text, sizeof(text), truncated);
-	if( del )
-		remove(tmp);
+	FileFormatter fmt(src, g_screen.Cols(), g_screen.Rows());
+	bool ok = fmt.PreprocessFile(html);
+	if( cleanup )
+		remove(src);
 
 	if( !ok )
 	{
-		SetStatusF('E', "View open failed: %s", e->name);
+		remove(tmp);
+		SetStatusF('E', "View failed: %s", e->name);
 		return;
 	}
 
 	char namebuf[UI_NAME_MAX + 8];
 	list->PrintName(namebuf, sizeof(namebuf), e);
-	ShowQuickView(namebuf, text, truncated);
+	ShowQuickView(namebuf, fmt);
 
-	ReadKey();
+	remove(tmp);
 }
 
 void UiApp::DoGet()
@@ -1305,60 +1107,6 @@ void UiApp::RenameCurrentItem()
 	}
 }
 
-void UiApp::PutChAt(int x, int y, int ch)
-{
-	PutChAtAttr(x, y, ch, UI_ATTR_NORMAL);
-}
-
-void UiApp::PutChAtAttr(int x, int y, int ch, uint8_t attr)
-{
-	if( !_screenReady || !g_screen )
-		return;
-	if( x < 0 || y < 0 || x >= g_screenCols || y >= g_screenRows )
-		return;
-	
-	uint16_t off = (uint16_t)((y * g_screenCols + x) * 2);
-	g_screen[off] = (uint8_t)ch;
-	g_screen[off + 1] = attr;
-}
-
-void UiApp::WritePadAt(int x, int y, const char *s, int w, uint8_t attr)
-{
-	if( w <= 0 )
-		return;
-
-	int i = 0;
-	if( s != NULL )
-	{
-		while( i < w && s[i] != '\0' )
-		{
-			PutChAtAttr(x + i, y, s[i], attr);
-			i++;
-		}
-	}
-
-	while( i < w )
-	{
-		PutChAtAttr(x + i, y, ' ', attr);
-		i++;
-	}
-}
-
-void UiApp::WriteFillAt(int x, int y, int count, int ch)
-{
-	for( int i = 0; i < count; i++ )
-		PutChAt(x + i, y, ch);
-}
-
-void UiApp::WriteAt(int x, int y, const char *s, uint8_t attr)
-{
-	if( s == NULL )
-		return;
-
-	for( int i = 0; s[i] != '\0'; i++ )
-		PutChAtAttr(x + i, y, s[i], attr);
-}
-
 void UiApp::FormatSelectedStats(char *dst, size_t dstSize, UiList *lst)
 {
 	if( dst == NULL || dstSize == 0 )
@@ -1426,7 +1174,7 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 		else
 			attr = e != NULL && e->kind == 'd' ? UI_ATTR_DIRECTORY : UI_ATTR_NORMAL;
 
-		WritePadAt(x + 1, y + 1 + row, namebuf, w - 2, attr);
+		g_screen.WritePadAt(x + 1, y + 1 + row, namebuf, w - 2, attr);
 	}
 
 	if( rows > 0 && lst->Count() > rows )
@@ -1439,39 +1187,39 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 		int thumb_pos = (lst->Top() * (rows - thumb_size)) / (lst->Count() - rows);
 		for( int i = 0; i < rows; i++ )
 		{
-			PutChAt(x, y + 1 + i, CH_V);
-			PutChAt(x + w - 1, y + 1 + i, (i >= thumb_pos && i < thumb_pos + thumb_size) ? CH_THUMB : CH_SHADE);
+			g_screen.PutChAt(x, y + 1 + i, CH_V);
+			g_screen.PutChAt(x + w - 1, y + 1 + i, (i >= thumb_pos && i < thumb_pos + thumb_size) ? CH_THUMB : CH_SHADE);
 		}
 	}
 	else
 	{
 		for( int i = 1; i < h - 1; i++ )
 		{
-			PutChAt(x, y + i, CH_V);
-			PutChAt(x + w - 1, y + i, CH_V);
+			g_screen.PutChAt(x, y + i, CH_V);
+			g_screen.PutChAt(x + w - 1, y + i, CH_V);
 		}
 	}
 
-	PutChAt(x, y, CH_UL);
-	PutChAt(x + 1, y, CH_H);
+	g_screen.PutChAt(x, y, CH_UL);
+	g_screen.PutChAt(x + 1, y, CH_H);
 	lst->PrintCwd(namebuf, w - 2);
 	size_t len = strlen(namebuf);
-	WritePadAt(x + 2, y, namebuf, len, active ? UI_ATTR_SELECTED : UI_ATTR_NORMAL);
-	WriteFillAt(x + 2 + len, y, w - len - 3, CH_H);
-	PutChAt(x + w - 1, y, CH_UR);
+	g_screen.WritePadAt(x + 2, y, namebuf, len, active ? UI_ATTR_SELECTED : UI_ATTR_NORMAL);
+	g_screen.WriteFillAt(x + 2 + len, y, w - len - 3, CH_H);
+	g_screen.PutChAt(x + w - 1, y, CH_UR);
 
-	PutChAt(x, y + h - 3, CH_LT);
-	WriteFillAt(x + 1, y + h - 3, w - 2, CH_H);
-	PutChAt(x + w - 1, y + h - 3, CH_RT);
-	PutChAt(x, y + h - 1, CH_LL);
-	//WriteFillAt(x + 1, y + h - 1, w - 2, CH_H);
-	PutChAt(x + w - 1, y + h - 1, CH_LR);
-	PutChAt(x, y + h - 2, CH_V);
-	PutChAt(x + w - 1, y + h - 2, CH_V);
+	g_screen.PutChAt(x, y + h - 3, CH_LT);
+	g_screen.WriteFillAt(x + 1, y + h - 3, w - 2, CH_H);
+	g_screen.PutChAt(x + w - 1, y + h - 3, CH_RT);
+	g_screen.PutChAt(x, y + h - 1, CH_LL);
+	//g_screen.WriteFillAt(x + 1, y + h - 1, w - 2, CH_H);
+	g_screen.PutChAt(x + w - 1, y + h - 1, CH_LR);
+	g_screen.PutChAt(x, y + h - 2, CH_V);
+	g_screen.PutChAt(x + w - 1, y + h - 2, CH_V);
 
-	WriteFillAt(x + 1, y + h - 2, w - 2, ' ');
+	g_screen.WriteFillAt(x + 1, y + h - 2, w - 2, ' ');
 	lst->PrintStats(namebuf, w - 3, cur);
-	WritePadAt(x + 2, y + h - 2, namebuf, w - 4);
+	g_screen.WritePadAt(x + 2, y + h - 2, namebuf, w - 4);
 
 	memset(namebuf, CH_H, w - 2);
 	namebuf[w - 2] = '\0';
@@ -1491,5 +1239,5 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *lst, bool active)
 		len = w - 2;
 	if( len > 0 )
 		memcpy(namebuf + w - 2 - len, freebuf, len);
-	WriteAt(x + 1, y + h - 1, namebuf);
+	g_screen.WriteAt(x + 1, y + h - 1, namebuf);
 }

@@ -529,7 +529,7 @@ void FtpTransport::PollControlSocket(uint32_t timeout)
 
 	clockTicks_t start = TIMER_GET_CURRENT();
 
-	while( 1 )
+	while( true )
 	{
 		PACKET_PROCESS_SINGLE;
 		Arp::driveArp();
@@ -868,7 +868,7 @@ bool FtpTransport::WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t 
 {
 	TouchScenarioActivity();
 
-	while( 1 )
+	while( true )
 	{
 		CheckAbortKey();
 		PollControlSocket(50);
@@ -987,7 +987,7 @@ bool FtpTransport::ResolveServer(char *name, IpAddr_t addr)
 	if( rc < 0 )
 		return false;
 
-	while( 1 )
+	while( true )
 	{
 		if( !Dns::isQueryPending() || _ctrlBreakDetected )
 			break;
@@ -1342,7 +1342,7 @@ bool FtpTransport::WaitForDataSocket()
 {
 	clockTicks_t start = TIMER_GET_CURRENT();
 
-	while( 1 )
+	while( true )
 	{
 		CheckAbortKey();
 		if( _ctrlBreakDetected )
