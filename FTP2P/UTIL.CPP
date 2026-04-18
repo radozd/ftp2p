@@ -92,7 +92,7 @@ void SprintfTrunc(char *dst, size_t dstSize, const char *fmt, ...)
 
 void CropLeft(char *dst, size_t len, const char *src)
 {
-	if( dst == NULL || len <= 0 )
+	if( dst == NULL || len == 0 )
 		return;
 
 	dst[0] = '\0';
@@ -112,7 +112,7 @@ void CropLeft(char *dst, size_t len, const char *src)
 
 void CropRight(char *dst, size_t len, const char *src)
 {
-	if( dst == NULL || len <= 0 )
+	if( dst == NULL || len == 0 )
 		return;
 
 	dst[0] = '\0';
@@ -209,9 +209,9 @@ static bool IsReservedDosName(const char *src)
 	return false;
 }
 
-static void GetLastPathComponent(char *nameBuf, int nameBufSize, const char *path)
+static void GetLastPathComponent(char *nameBuf, size_t nameBufSize, const char *path)
 {
-	if( nameBuf == NULL || nameBufSize <= 0 )
+	if( nameBuf == NULL || nameBufSize == 0 )
 		return;
 	
 	nameBuf[0] = '\0';

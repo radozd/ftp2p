@@ -32,7 +32,7 @@ typedef struct
 class UiList
 {
 public:
-	UiList(int cap, bool dosNames=false);
+	UiList(size_t cap, bool dosNames=false);
 	~UiList();
 
 	bool Ok() const { return _items != NULL && _namePool != NULL; }
@@ -63,9 +63,9 @@ public:
 	void ClearSelectionMarks();
 	void SelectAllFiles();
 	void InvertFileSelection();
-	int SelectedFileCount() const;
-	uint32_t SelectedFileBytes() const;
-	int AllSelected(UiEntry **items, int maxItems);
+	size_t SelectedFileCount() const;
+	__int64 SelectedFileBytes() const;
+	size_t AllSelected(UiEntry **items, size_t maxItems);
 	void SetPendingSelection(const char *name);
 	void SetPendingSelectionFromCwdTail();
 	void SetFallbackSelectionToCurrent();
@@ -78,7 +78,7 @@ public:
 	void ResetSelection();
 	
 	bool IsTruncated() const { return _truncated; }
-	int Count() const { return _count; }
+	size_t Count() const { return _count; }
 	int Top() const { return _top; }
 
 private:
@@ -88,12 +88,12 @@ private:
 	char _cwd[128];
 
 	char *_namePool;
-	uint16_t _namePoolUsed;
-	uint16_t _namePoolSize;
+	size_t _namePoolUsed;
+	size_t _namePoolSize;
 
 	UiEntry *_items;	
-	int _count;
-	int _capacity;
+	size_t _count;
+	size_t _capacity;
 	int _top;
 	int _sel;
 	
@@ -105,7 +105,7 @@ private:
 	static int EntryCmp(const void *a, const void *b);
 };
 
-UiList::UiList(int cap, bool dosNames)
+UiList::UiList(size_t cap, bool dosNames)
 {
 	_capacity = 0;
 	_count = 0;
@@ -126,18 +126,18 @@ UiList::UiList(int cap, bool dosNames)
 		return;
 
 	_capacity = cap;
-	_items = (UiEntry *)calloc((size_t)cap, sizeof(UiEntry));
+	_items = (UiEntry *)calloc(cap, sizeof(UiEntry));
 
 	if( _dosNames )
 	{
 		unsigned long need = (unsigned long)cap * 13; // 8.3\0
 		if( need > NAME_POOL_SIZE )
 			need = NAME_POOL_SIZE;
-		_namePoolSize = (uint16_t)need;
+		_namePoolSize = (size_t)need;
 	}
 	else
 	{
-		_namePoolSize = (uint16_t)NAME_POOL_SIZE;
+		_namePoolSize = (size_t)NAME_POOL_SIZE;
 	}
 	_namePool = (char *)malloc(_namePoolSize);
 }
@@ -196,12 +196,12 @@ char *UiList::AllocName(const char *name)
 		name = "";
 
 	size_t need = strlen(name) + 1u;
-	if( need > (size_t)(_namePoolSize - _namePoolUsed) )
+	if( need > _namePoolSize - _namePoolUsed )
 		return NULL;
 
 	char *dst = _namePool + _namePoolUsed;
 	memcpy(dst, name, need);
-	_namePoolUsed = (uint16_t)(_namePoolUsed + (uint16_t)need);
+	_namePoolUsed = _namePoolUsed + need;
 	return dst;
 }
 
@@ -230,7 +230,7 @@ void UiList::Sort()
 {
 	if( _items == NULL || _count <= 1 )
 		return;
-	qsort(_items, (size_t)_count, sizeof(UiEntry), EntryCmp);
+	qsort(_items, _count, sizeof(UiEntry), EntryCmp);
 }
 
 void UiList::SetCwd(const char *cwd)
@@ -240,6 +240,12 @@ void UiList::SetCwd(const char *cwd)
 
 void UiList::PrintCwd(char *dst, int maxw)
 {
+	if( _cwd[0] == '\0' || (_cwd[1] == '\0' && _cwd[0] == '/') )
+	{
+		dst[0] = '\0';
+		return;
+	}
+
 	char *name = _cwd;
 	char tmp[160];
 	if( !_dosNames && !g_noUtf8Arg )
@@ -368,7 +374,7 @@ UiEntry *UiList::FindByName(const char *name)
 	if( name == NULL || *name == '\0' )
 		return NULL;
 
-	for( int i = 0; i < _count; i++ )
+	for( size_t i = 0; i < _count; i++ )
 	{
 		if( stricmp(_items[i].name, name) == 0 )
 			return &_items[i];
@@ -382,7 +388,7 @@ bool UiList::SelectByName(const char *name)
 	if( name == NULL || *name == '\0' )
 		return false;
 
-	for( int i = 0; i < _count; i++ )
+	for( size_t i = 0; i < _count; i++ )
 	{
 		if( stricmp(_items[i].name, name) == 0 )
 		{
@@ -396,7 +402,7 @@ bool UiList::SelectByName(const char *name)
 
 void UiList::EnsureVisible(int height)
 {
-	if( _count <= 0 )
+	if( _count == 0 )
 	{
 		ResetSelection();
 		return;
@@ -416,7 +422,7 @@ void UiList::EnsureVisible(int height)
 
 bool UiList::MoveSel(int delta)
 {
-	if( _count <= 0 )
+	if( _count == 0 )
 		return false;
 
 	int old = _sel;
@@ -450,7 +456,7 @@ bool UiList::ToggleCurrentSelection(bool moveAfter)
 
 void UiList::ClearSelectionMarks()
 {
-	for( int i = 0; i < _count; i++ )
+	for( size_t i = 0; i < _count; i++ )
 	{
 		if( _items[i].kind == 'F' )
 			_items[i].kind = 'f';
@@ -459,7 +465,7 @@ void UiList::ClearSelectionMarks()
 
 void UiList::SelectAllFiles()
 {
-	for( int i = 0; i < _count; i++ )
+	for( size_t i = 0; i < _count; i++ )
 	{
 		if( _items[i].kind == 'f' )
 			_items[i].kind = 'F';
@@ -468,7 +474,7 @@ void UiList::SelectAllFiles()
 
 void UiList::InvertFileSelection()
 {
-	for( int i = 0; i < _count; i++ )
+	for( size_t i = 0; i < _count; i++ )
 	{
 		if( _items[i].kind == 'f' )
 			_items[i].kind = 'F';
@@ -477,11 +483,11 @@ void UiList::InvertFileSelection()
 	}
 }
 
-int UiList::SelectedFileCount() const
+size_t UiList::SelectedFileCount() const
 {
-	int n = 0;
+	size_t n = 0;
 
-	for( int i = 0; i < _count; i++ )
+	for( size_t i = 0; i < _count; i++ )
 	{
 		if( _items[i].kind == 'F')
 			n++;
@@ -490,27 +496,26 @@ int UiList::SelectedFileCount() const
 	return n;
 }
 
-uint32_t UiList::SelectedFileBytes() const
+__int64 UiList::SelectedFileBytes() const
 {
-	uint32_t total = 0;
+	__int64 total = 0;
 
-	for( int i = 0; i < _count; i++ )
+	for( size_t i = 0; i < _count; i++ )
 	{
 		if( _items[i].kind == 'F')
-			total += _items[i].size;
+			total += (__int64)_items[i].size;
 	}
 
 	return total;
 }
 
-int UiList::AllSelected(UiEntry **items, int maxItems)
+size_t UiList::AllSelected(UiEntry **items, size_t maxItems)
 {
-	int n = 0;
-
-	if( items == NULL || maxItems <= 0 )
+	if( items == NULL || maxItems == 0 )
 		return 0;
 
-	for( int i = 0; i < _count && n < maxItems; i++ )
+	size_t n = 0;
+	for( size_t i = 0; i < _count && n < maxItems; i++ )
 	{
 		if( _items[i].kind == 'F')
 			items[n++] = &_items[i];
@@ -580,7 +585,7 @@ bool UiList::Refresh(bool (*reloadFunc)())
 		return true;
 	}
 
-	if( _count <= 0 )
+	if( _count == 0 )
 	{
 		_sel = 0;
 		_top = 0;
@@ -606,7 +611,7 @@ void UiList::UpdateEncoding()
 	unsigned cp852 = 0;
 	unsigned cp866 = 0;
 
-	for( int i = 0; i < _count; i++ )
+	for( size_t i = 0; i < _count; i++ )
 	{
 		UiEntry *e = &_items[i];
 		if( e != NULL && e->kind != 'p' )
