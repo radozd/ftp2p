@@ -234,38 +234,6 @@ static void GetLastPathComponent(char *nameBuf, size_t nameBufSize, const char *
 
 // Misc
 
-static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, uint32_t bytesNow)
-{
-	if( bytesNow <= lastBytes )
-		return false;
-
-	clockTicks_t now = TIMER_GET_CURRENT();
-
-	if( lastBytes == 0 )
-	{
-		lastBytes = bytesNow;
-		lastTick = now;
-		return true;
-	}
-
-	if( bytesNow - lastBytes >= 32768ul )
-	{
-		lastBytes = bytesNow;
-		lastTick = now;
-		return true;
-	}
-
-	uint32_t elapsed = (uint32_t)(Timer_diff(lastTick, now) * TIMER_TICK_LEN);
-	if( elapsed >= 500 )
-	{
-		lastBytes = bytesNow;
-		lastTick = now;
-		return true;
-	}
-
-	return false;
-}
-
 void FormatSize(char *dst, size_t dstSize, __int64 bytes)
 {
 	const __int64 KB = 1024ul;
@@ -309,6 +277,30 @@ void FormatSize(char *dst, size_t dstSize, __int64 bytes)
 		}
 		SprintfTrunc(dst, dstSize, "%lu.%03lu GB", whole, frac);
 	}
+}
+
+static long ProbeFreeMem()
+{
+	void **ptr = (void**)malloc(1024 * sizeof(void*));
+	if( ptr == NULL )
+		return 0;
+
+	int num;
+	for( num = 0; num < 1024; num++ )
+	{
+		ptr[num] = malloc(1024);
+		if( ptr[num] == NULL )
+			break;
+	}
+
+	long count = num;
+
+	while( --num >= 0 )
+		free(ptr[num]);
+
+	free(ptr);
+
+	return count * 1024L + 1024L * sizeof(void*);
 }
 
 static int KeyAscii(uint16_t key)

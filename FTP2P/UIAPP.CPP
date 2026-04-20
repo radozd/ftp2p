@@ -348,6 +348,13 @@ void UiApp::Loop()
 			DeleteCurrentItem();
 			_needRedraw = true;
 		}
+		//else if( key == UI_KEY_F1 ) // debug
+		//{
+		//	long bytes = ProbeFreeHeap();
+		//	char sizebuf[32];
+		//	FormatSize(sizebuf, sizeof(sizebuf), bytes);
+		//	SetStatusF('E', "Free heap %s", sizebuf);
+		//}
 	}
 }
 

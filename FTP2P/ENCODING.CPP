@@ -52,7 +52,7 @@ void InitDosCharset()
 	default:
 		g_encoding = OEM_CP866;		
 	}
-	printf("CP = %d\n", r.x.bx);
+	printf("Current CP = %d\n", r.x.bx);
 }
 
 void CountOemChars(const char *s, unsigned &cp850, unsigned &cp852, unsigned &cp866)
@@ -116,7 +116,7 @@ void CountOemChars(const char *s, unsigned &cp850, unsigned &cp852, unsigned &cp
 	}
 }
 
-static bool UpdateEncoding(const char *src)
+static OemCp UpdateEncoding(const char *src)
 {
 	unsigned cp850 = 0;
 	unsigned cp852 = 0;
@@ -124,27 +124,12 @@ static bool UpdateEncoding(const char *src)
 	CountOemChars(src, cp850, cp852, cp866);
 
 	if( cp866 > cp850 && cp866 > cp852 )
-	{
-		g_encoding = OEM_CP866;
-		return true;
-	}
+		return OEM_CP866;
 	if( cp852 > cp850 )
-	{
-		g_encoding = OEM_CP852;
-		return true;
-	}
+		return OEM_CP852;
 	if( cp850 > 0 )
-	{
-		g_encoding = OEM_CP850;
-		return true;
-	}
-	if( strlen(src) > 256 )
-	{
-		g_encoding = OEM_ASCII;
-		return true;
-	}
-
-	return false;
+		return OEM_CP850;
+	return OEM_ASCII;
 }
 
 static unsigned FoldDiacritic(unsigned ch)
@@ -683,14 +668,14 @@ static bool Utf8Next(const char **s, unsigned *ch)
 		return true;
 	}
 
-	if( (p[0] & 0xE0) == 0xC0 && p[1] != 0 && (p[1] & 0xC0) == 0x80 )
+	if( (p[0] & 0xE0) == 0xC0 && p[1] != '\0' && (p[1] & 0xC0) == 0x80 )
 	{
 		*ch = ((unsigned)(p[0] & 0x1F) << 6) | (unsigned)(p[1] & 0x3F);
 		*s += 2;
 		return true;
 	}
 
-	if( (p[0] & 0xF0) == 0xE0 && p[1] != 0 && p[2] != 0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80 )
+	if( (p[0] & 0xF0) == 0xE0 && p[1] != '\0' && p[2] != '\0' && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80 )
 	{
 		*ch = ((unsigned)(p[0] & 0x0F) << 12) | ((unsigned)(p[1] & 0x3F) << 6) | (unsigned)(p[2] & 0x3F);
 		*s += 3;
@@ -702,7 +687,7 @@ static bool Utf8Next(const char **s, unsigned *ch)
 	return true;
 }
 
-void Utf8ToOem(char *dst, size_t dstSize, const char *src)
+void Utf8ToOem(char *dst, size_t dstSize, const char *src, OemCp encoding)
 {
 	if( dst == NULL || dstSize == 0 )
 		return;
@@ -713,7 +698,7 @@ void Utf8ToOem(char *dst, size_t dstSize, const char *src)
 		if( !Utf8Next(&src, &ch) )
 			break;
 
-		switch( g_encoding )
+		switch( encoding )
 		{
 		case OEM_CP850:
 			ch = UnicodeToCp850(ch);
@@ -768,7 +753,7 @@ static bool Utf8Append(char *dst, size_t dstSize, size_t &pos, unsigned ch)
 	return true;
 }
 
-void OemToUtf8(char *dst, size_t dstSize, const char *src)
+void OemToUtf8(char *dst, size_t dstSize, const char *src, OemCp encoding)
 {
 	if( dst == NULL || dstSize == 0 )
 		return;
@@ -781,11 +766,11 @@ void OemToUtf8(char *dst, size_t dstSize, const char *src)
 
 		if( c < 0x80 )
 			ch = c;
-		else if( g_encoding == OEM_CP866 )
+		else if( encoding == OEM_CP866 )
 			ch = OemCp866ToUnicode(c);
-		else if( g_encoding == OEM_CP852 )
+		else if( encoding == OEM_CP852 )
 			ch = OemCp852ToUnicode(c);
-		else if( g_encoding == OEM_CP850 )
+		else if( encoding == OEM_CP850 )
 			ch = OemCp850ToUnicode(c);
 		else
 			ch = '_';
@@ -797,7 +782,7 @@ void OemToUtf8(char *dst, size_t dstSize, const char *src)
 	dst[pos] = '\0';
 }
 
-void StrToUpper(char *s)
+void StrToUpper(char *s, OemCp encoding)
 {
 	if( s == NULL )
 		return;
@@ -806,7 +791,7 @@ void StrToUpper(char *s)
 	{
 		unsigned char c = (unsigned char)*s;
 
-		switch( g_encoding )
+		switch( encoding )
 		{
 		case OEM_CP866:
 			c = ToUpperCp866Ch(c);
@@ -830,7 +815,7 @@ void StrToUpper(char *s)
 	}
 }
 
-void StrToLower(char *s)
+void StrToLower(char *s, OemCp encoding)
 {
 	if( s == NULL )
 		return;
@@ -839,7 +824,7 @@ void StrToLower(char *s)
 	{
 		unsigned char c = (unsigned char)*s;
 
-		switch( g_encoding )
+		switch( encoding )
 		{
 		case OEM_CP866:
 			c = ToLowerCp866Ch(c);
@@ -873,7 +858,7 @@ bool MakeRemoteName(char *dst, size_t dstSize, const char *src)
 	char tmp[160];
 	if( !g_noUtf8Arg )
 	{
-		OemToUtf8(tmp, sizeof(tmp), src);
+		OemToUtf8(tmp, sizeof(tmp), src, g_encoding);
 		name = tmp;
 	}
 
@@ -896,12 +881,16 @@ bool MakeRemoteName(char *dst, size_t dstSize, const char *src)
 
 static bool IsGoodDosChar(unsigned char c, bool strict = false)
 {
-	return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-			(c >= 0x80 && !(c >= 0xB0 && c <= 0xDF) && c < 0xF0) ||
-			(!strict && (c == ',' || c == ' ')) ||
-			c == '.' || c == '_' || c == '~' || c == '-' ||
-			c == '$' || c == '!' || c == '#' || c == '%' || c == '&' || c == '\'' ||
-			c == '(' || c == ')' || c == '@' || c == '^' || c == '`' || c == '{' || c == '}';
+	if( strict )
+	{
+		return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+				(c >= 0x80 && !(c >= 0xB0 && c <= 0xDF) && c < 0xF0) ||
+				c == '.' || c == '_' || c == '~' || c == '-' ||
+				c == '$' || c == '!' || c == '#' || c == '%' || c == '&' || c == '\'' ||
+				c == '(' || c == ')' || c == '@' || c == '^' || c == '`' || c == '{' || c == '}';
+	}
+
+	return (c >= 0x20 && c <= 0x7E) || (c >= 0x80 && c < 0xF0);
 }
 
 static bool AppendDosChar(char *dst, size_t dstSize, size_t &pos, unsigned ch)
@@ -919,7 +908,6 @@ static bool AppendDosChar(char *dst, size_t dstSize, size_t &pos, unsigned ch)
 			return false;
 
 		dst[pos++] = (char)c;
-		dst[pos] = '\0';
 		return true;
 	}
 
@@ -931,7 +919,6 @@ static bool AppendDosChar(char *dst, size_t dstSize, size_t &pos, unsigned ch)
 			return false;
 
 		dst[pos++] = (char)c;
-		dst[pos] = '\0';
 		return true;
 	}
 
@@ -949,7 +936,6 @@ static bool AppendDosChar(char *dst, size_t dstSize, size_t &pos, unsigned ch)
 			return false;
 		dst[pos++] = 's';
 
-		dst[pos] = '\0';
 		return true;
 	}
 
@@ -961,9 +947,11 @@ static void Utf8ToDosNameCharset(char *dst, size_t dstSize, const char *src)
 	if( dst == NULL || dstSize == 0 )
 		return;
 
-	dst[0] = '\0';
 	if( src == NULL )
+	{
+		dst[0] = '\0';
 		return;
+	}
 
 	size_t pos = 0;
 	while( *src && pos < dstSize - 1 )

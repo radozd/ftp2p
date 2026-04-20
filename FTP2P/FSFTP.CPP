@@ -1818,6 +1818,38 @@ static uint32_t ComputeRate(uint32_t bytes, uint32_t elapsed)
 	return rate;
 }
 
+static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, uint32_t bytesNow)
+{
+	if( bytesNow <= lastBytes )
+		return false;
+
+	clockTicks_t now = TIMER_GET_CURRENT();
+
+	if( lastBytes == 0 )
+	{
+		lastBytes = bytesNow;
+		lastTick = now;
+		return true;
+	}
+
+	if( bytesNow - lastBytes >= 32768ul )
+	{
+		lastBytes = bytesNow;
+		lastTick = now;
+		return true;
+	}
+
+	uint32_t elapsed = (uint32_t)(Timer_diff(lastTick, now) * TIMER_TICK_LEN);
+	if( elapsed >= 500 )
+	{
+		lastBytes = bytesNow;
+		lastTick = now;
+		return true;
+	}
+
+	return false;
+}
+
 bool FtpTransport::ReceiveFile()
 {
 	char *target_filename = _activeTransfer.localFile;

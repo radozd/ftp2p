@@ -86,6 +86,7 @@ private:
 	bool _truncated;
 	bool _needRefresh;
 	char _cwd[128];
+	OemCp _encoding;
 
 	char *_namePool;
 	size_t _namePoolUsed;
@@ -118,6 +119,7 @@ UiList::UiList(size_t cap, bool dosNames)
 	_namePool = NULL;
 	_namePoolUsed = 0;
 	_cwd[0] = '\0';
+	_encoding = g_encoding;
 	_pendingSelection[0] = '\0';
 	_fallbackSelectionIndex = -1;
 	_freeBytes = -1;
@@ -250,10 +252,10 @@ void UiList::PrintCwd(char *dst, int maxw)
 	char tmp[160];
 	if( !_dosNames && !g_noUtf8Arg )
 	{
-		if( g_simpleUtf8 )
+		if( g_simpleUtf8 || g_encoding != _encoding )
 			Utf8ToDosNameCharset(tmp, sizeof(tmp), _cwd);
 		else
-			Utf8ToOem(tmp, sizeof(tmp), _cwd);
+			Utf8ToOem(tmp, sizeof(tmp), _cwd, _encoding);
 
 		name = tmp;
 	}
@@ -282,10 +284,10 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 	char tmp[160];
 	if( !_dosNames && !g_noUtf8Arg )
 	{
-		if( g_simpleUtf8 )
+		if( g_simpleUtf8 || g_encoding != _encoding )
 			Utf8ToDosNameCharset(tmp, sizeof(tmp), name);
 		else
-			Utf8ToOem(tmp, sizeof(tmp), name);
+			Utf8ToOem(tmp, sizeof(tmp), name, _encoding);
 		name = tmp;
 	}
 
@@ -301,9 +303,9 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 	if( _dosNames )
 	{
 		if( e->kind == 'd' )
-			StrToUpper(dst);
+			StrToUpper(dst, _encoding);
 		else
-			StrToLower(dst);
+			StrToLower(dst, _encoding);
 	}
 }
 
@@ -619,11 +621,11 @@ void UiList::UpdateEncoding()
 	}
 
 	if( cp866 > cp852 && cp866 > cp850 )
-		g_encoding = OEM_CP866;
+		_encoding = OEM_CP866;
 	else if( cp852 > cp850 )
-		g_encoding = OEM_CP852;
+		_encoding = OEM_CP852;
 	else if( cp850 > 0 )
-		g_encoding = OEM_CP850;
+		_encoding = OEM_CP850;
 	else
-		g_encoding = OEM_ASCII;
+		_encoding = OEM_ASCII;
 }

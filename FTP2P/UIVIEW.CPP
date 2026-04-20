@@ -362,10 +362,7 @@ long FileFormatter::GetLine(long pos, char *buf, size_t bufSize) const
 
 	buf[col] = '\0';
 
-	if( ch == EOF )
-		return _fsize;
-
-	if( ch != '\n' && _width > 0 && col >= _width )
+	if( ch != '\n' && ch != EOF && _width > 0 && col >= _width )
 	{
 		ch = fgetc(_f);
 		if( ch != EOF && ch != '\n' )
@@ -378,6 +375,14 @@ long FileFormatter::GetLine(long pos, char *buf, size_t bufSize) const
 		pos = 0;
 	if( pos > _fsize )
 		pos = _fsize;
+
+	if( !g_noUtf8Arg )
+	{
+		if( g_simpleUtf8 )
+			Utf8ToDosNameCharset(buf, bufSize, buf);
+		else
+			Utf8ToOem(buf, bufSize, buf, g_encoding);
+	}
 
 	return pos;
 }
@@ -470,13 +475,6 @@ bool FileFormatter::PreprocessTextStream(FILE *src)
 
 		if( !PutCh(ch) )
 			return false;
-	}
-
-	while( pending_spaces > 0 )
-	{
-		if( !PutCh(' ') )
-			return false;
-		pending_spaces--;
 	}
 
 	return !ferror(src);
