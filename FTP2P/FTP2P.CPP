@@ -219,7 +219,7 @@ void SetStatusCB(char type, const char *s)
 }
 
 /* ------------------------------------------------------------------------- */
-#define APP_VERSION "v3.4"
+#define APP_VERSION "v3.4.1"
 
 int main(int argc, char *argv[])
 {
