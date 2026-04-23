@@ -34,8 +34,14 @@ FTP2P is developed primarily for nostalgic and hobbyist purposes.
 FTP2P intentionally follows classic DOS filesystem constraints.
 Long filename (LFN) support is not planned.
 
-Recursive directory copy is also not implemented. File transfers
-operate on explicitly selected files.
+Recursive directory copy is not implemented because it would require
+reliable long filename handling when mapping remote paths to the
+local DOS filesystem.
+
+Supported DOS code pages are currently limited to 437, 850, 852 and 866.
+
+Each panel can display up to 2000 directory entries. The effective
+limit may be lower if filenames are very long.
 
 ## Repository layout
 
