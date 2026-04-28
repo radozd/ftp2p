@@ -1,0 +1,29 @@
+Many years ago I got my first computer. It was a 286, later upgraded to a 386.
+That was when I started learning programming.
+
+After some time, when I became more confident, I upgraded it myself using my own money.
+It became a Pentium MMX 233 system with a Voodoo3 3000 PCI and an Aureal Vortex2.
+That machine contained my programs, experiments, documents, notes, and personal correspondence.
+
+When I moved to another city, the computer stayed with my parents.
+At some point they gave it away without asking me.
+For them it was just an old, small, unremarkable machine.
+For me it was something I had built and cared about.
+
+I learned about it later, by accident.
+That was probably the hardest hit I have experienced related to computers,
+and it still feels unsettling to think about it.
+
+Several years later, after some distance, I decided to start again from scratch
+and bought a 486 system. I never had one before, so it was a new experience.
+
+What surprised me was how difficult it had become to transfer files
+between modern systems and a real DOS machine.
+There are floppy disks and networking, but no USB, and practical FTP clients are missing.
+
+FTP2P started as a way to solve that problem.
+At the same time, it became a way to recreate the kind of software
+I would have written back then, at that stage of my development.
+
+Over the years I have received a lot from the computing world for free.
+This project is a way to give something back.

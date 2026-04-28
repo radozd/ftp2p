@@ -40,7 +40,7 @@ local DOS filesystem.
 
 Supported DOS code pages are currently limited to 437, 850, 852 and 866.
 
-Each panel can display up to 2000 directory entries. The effective
+Each panel can display up to 3000 directory entries. The effective
 limit may be lower if filenames are very long.
 
 ## Repository layout
