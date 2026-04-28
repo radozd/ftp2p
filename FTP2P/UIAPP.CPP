@@ -70,11 +70,9 @@ public:
 	UiApp();
 
 	bool InitScreen();
-	void ClearScreen();
 	void Cleanup();
 
 	void SetStatus(char type, const char *s);
-
 	void Loop();
 
 private:
@@ -255,7 +253,7 @@ void UiApp::Loop()
 		}
 		else if( key == UI_KEY_ESC || ascii == 27 )
 		{
-			FtpTransport::_ctrlBreakDetected = true;
+			g_ctrlBreakDetected = true;
 			SetStatusF('W', "Abort requested");
 		}
 		else if( key == UI_KEY_F9 )
@@ -350,10 +348,9 @@ void UiApp::Loop()
 		}
 		//else if( key == UI_KEY_F1 ) // debug
 		//{
-		//	long bytes = ProbeFreeHeap();
-		//	char sizebuf[32];
-		//	FormatSize(sizebuf, sizeof(sizebuf), bytes);
-		//	SetStatusF('E', "Free heap %s", sizebuf);
+		//	char buf[80];
+		//	ProbeFreeMem(buf, sizeof(buf));
+		//	SetStatus('E', buf);
 		//}
 	}
 }
@@ -697,7 +694,7 @@ void UiApp::QuickViewCurrentItem()
 		CopyTrunc(src, sizeof(src), "ftp2p.$$$");
 		remove(src);
 
-		FtpTransport::_ctrlBreakDetected = false;
+		g_ctrlBreakDetected = false;
 		if( !g_ftp.DoGetAndWait(e->name, src, e->size) )
 			return;
 
@@ -729,7 +726,7 @@ void UiApp::QuickViewCurrentItem()
 
 void UiApp::DoGet()
 {
-	FtpTransport::_ctrlBreakDetected = false;
+	g_ctrlBreakDetected = false;
 
 	UiEntry *e = g_remoteList.GetCurrent();
 	if( !e || e->kind == 'p' || e->kind == 'd' )
@@ -751,7 +748,7 @@ void UiApp::DoGet()
 
 void UiApp::DoPut()
 {
-	FtpTransport::_ctrlBreakDetected = false;
+	g_ctrlBreakDetected = false;
 
 	UiEntry *e = g_localList.GetCurrent();
 	if( !e || e->kind == 'p' || e->kind == 'd' )
@@ -773,7 +770,7 @@ void UiApp::DoPut()
 
 void UiApp::CopySelectedItems()
 {
-	FtpTransport::_ctrlBreakDetected = false;
+	g_ctrlBreakDetected = false;
 
 	UiList *list = GetActiveList();
 	int selected = list->SelectedFileCount();
@@ -793,7 +790,7 @@ void UiApp::CopySelectedItems()
 
 	for( int i = 0; i < count; i++ )
 	{
-		if( FtpTransport::_ctrlBreakDetected )
+		if( g_ctrlBreakDetected )
 			break;
 
 		UiEntry *e = items[i];
@@ -833,7 +830,7 @@ void UiApp::CopySelectedItems()
 
 	char sizebuf[32];
 	FormatSize(sizebuf, sizeof(sizebuf), ok_bytes);
-	if( FtpTransport::_ctrlBreakDetected )
+	if( g_ctrlBreakDetected )
 		SetStatusF('W', "Copy cancelled: %d/%d files (%s)", ok_count, count, sizebuf);
 	else
 		SetStatusF(ok_count == count ? 'I' : 'W', "Copied %d/%d files (%s)", ok_count, count, sizebuf);
@@ -925,7 +922,7 @@ void UiApp::EnterCurrentItem()
 
 void UiApp::DeleteSelectedItems()
 {
-	FtpTransport::_ctrlBreakDetected = false;
+	g_ctrlBreakDetected = false;
 
 	UiList *list = GetActiveList();
 	int selected = list->SelectedFileCount();
@@ -948,7 +945,7 @@ void UiApp::DeleteSelectedItems()
 
 	for( int i = 0; i < count; i++ )
 	{
-		if( FtpTransport::_ctrlBreakDetected )
+		if( g_ctrlBreakDetected )
 			break;
 
 		UiEntry *e = items[i];
@@ -967,7 +964,7 @@ void UiApp::DeleteSelectedItems()
 	if( ok_count > 0 )
 		list->Invalidate();
 
-	if( FtpTransport::_ctrlBreakDetected )
+	if( g_ctrlBreakDetected )
 		SetStatusF('W', "Delete cancelled: %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
 	else
 		SetStatusF(ok_count == count ? 'I' : 'W', "Deleted %d/%d files (%lu bytes)", ok_count, count, (unsigned long)ok_bytes);
@@ -975,7 +972,7 @@ void UiApp::DeleteSelectedItems()
 
 void UiApp::DeleteCurrentItem()
 {
-	FtpTransport::_ctrlBreakDetected = false;
+	g_ctrlBreakDetected = false;
 
 	UiList *list = GetActiveList();
 	if( list->SelectedFileCount() > 0 )
@@ -1007,7 +1004,7 @@ void UiApp::DeleteCurrentItem()
 	}
 	else
 	{
-		if( FtpTransport::_ctrlBreakDetected )
+		if( g_ctrlBreakDetected )
 			SetStatusF('W', "Delete cancelled: %s", namebuf);
 		else
 			SetStatusF('E', "Delete failed: %s", namebuf);

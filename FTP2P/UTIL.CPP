@@ -279,11 +279,13 @@ void FormatSize(char *dst, size_t dstSize, __int64 bytes)
 	}
 }
 
-static long ProbeFreeMem()
+static void ProbeFreeMem(char *buf, size_t bufSize)
 {
+	buf[0] = '\0';
+
 	void **ptr = (void**)malloc(1024 * sizeof(void*));
 	if( ptr == NULL )
-		return 0;
+		return;
 
 	int num;
 	for( num = 0; num < 1024; num++ )
@@ -300,7 +302,13 @@ static long ProbeFreeMem()
 
 	free(ptr);
 
-	return count * 1024L + 1024L * sizeof(void*);
+	long bytes = count * 1024L + 1024L * sizeof(void*);
+	size_t stack = stackavail();
+
+	char sizebuf[32];
+	FormatSize(sizebuf, sizeof(sizebuf), bytes);
+
+	SprintfTrunc(buf, bufSize, "Heap=%s, Stack=%d B", sizebuf, stack);
 }
 
 static int KeyAscii(uint16_t key)

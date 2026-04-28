@@ -127,15 +127,14 @@ typedef struct
 
 class FtpTransport
 {
-public:	
-	static volatile bool _ctrlBreakDetected;
-
+public:
 	FtpTransport();
 
 	bool Init(StatusCallback statusCallback, UiList *remoteList);
 	void SetTimeoutProfile(uint32_t commandTimeoutMs, uint32_t dataIdleTimeoutMs);
 
-	bool ConnectAndLogin(const char *host, uint16_t port, const char *user, const char *pass);
+	bool ConnectAndLogin(void __interrupt __far (*ctrlBreakHandler)(),
+						const char *host, uint16_t port, const char *user, const char *pass);
 	void Quit();
 	bool Shutdown(uint32_t quitTimeoutMs);
 	void Cleanup();
@@ -170,9 +169,6 @@ private:
 	TcpSocket *_dataSocket;
 	TcpSocket *_listenSocket;
 
-	void (__interrupt __far *_oldCtrlBreakHandler)();
-	void (__interrupt __far *_oldCtrlCHandler)();
-
 	StatusCallback UiStatusCallback;
 	UiList *_remoteList;
 
@@ -206,7 +202,6 @@ private:
 	FtpTimeoutProfile _timeouts;
 	clockTicks_t _lastScenarioActivity;
 	
-	bool _ctrlHandlersInstalled;
 	bool _multilineResponse;
 	bool _stackStarted;
 
@@ -276,14 +271,6 @@ private:
 };
 
 
-volatile bool FtpTransport::_ctrlBreakDetected = false;
-
-void __interrupt __far ctrlBreakHandler()
-{
-	FtpTransport::_ctrlBreakDetected = true;
-}
-
-
 FtpTransport::FtpTransport()
 {
 	_clientState = Uninitialized;
@@ -302,9 +289,6 @@ FtpTransport::FtpTransport()
 	memset(&_ftpServerAddr, 0, sizeof(IpAddr_t));
 	memset(&_pasvAddr, 0, sizeof(IpAddr_t));
 
-	_oldCtrlBreakHandler = NULL;
-	_oldCtrlCHandler = NULL;
-
 	UiStatusCallback = NULL;
 	_remoteList = NULL;
 
@@ -314,7 +298,6 @@ FtpTransport::FtpTransport()
 	_replyCodeInProgress = 0;
 	_multilineResponse = false;
 	_stackStarted = false;
-	_ctrlHandlersInstalled = false;
 
 	_inBuf = NULL;
 	_inBufIndex = 0;
@@ -350,7 +333,8 @@ bool FtpTransport::Init(StatusCallback statusCallback, UiList *remoteList)
 	return true;
 }
 
-bool FtpTransport::ConnectAndLogin(const char *host, uint16_t port, const char *user, const char *pass)
+bool FtpTransport::ConnectAndLogin(void __interrupt __far (*ctrlBreakHandler)(),
+	const char *host, uint16_t port, const char *user, const char *pass)
 {
 	CopyTrunc(_ftpServer, sizeof(_ftpServer), host);
 	_ftpServerPort = port;
@@ -380,12 +364,6 @@ bool FtpTransport::ConnectAndLogin(const char *host, uint16_t port, const char *
 		return false;
 	}
 	_stackStarted = true;
-
-	_oldCtrlBreakHandler = getvect(0x1b);
-	_oldCtrlCHandler = getvect(0x23);
-	setvect(0x1b, ctrlBreakHandler);
-	setvect(0x23, ctrlBreakHandler);
-	_ctrlHandlersInstalled = true;
 
 	printf("Resolving server %s:%u\n", _ftpServer, _ftpServerPort);
 	if( !ResolveServer(_ftpServer, _ftpServerAddr) )
@@ -455,15 +433,6 @@ bool FtpTransport::ConnectAndLogin(const char *host, uint16_t port, const char *
 void FtpTransport::Cleanup()
 {
 	DestroySockets();
-
-	if( _ctrlHandlersInstalled )
-	{
-		if( _oldCtrlBreakHandler )
-			setvect(0x1b, _oldCtrlBreakHandler);
-		if( _oldCtrlCHandler )
-			setvect(0x23, _oldCtrlCHandler);
-		_ctrlHandlersInstalled = false;
-	}
 
 	if( _inBuf )
 	{
@@ -558,7 +527,7 @@ void FtpTransport::Quit()
 
 bool FtpTransport::Shutdown(uint32_t quitTimeoutMs)
 {
-	_ctrlBreakDetected = false;
+	g_ctrlBreakDetected = false;
 	CloseDataSocketsOnly();
 
 	if( _controlSocket == NULL )
@@ -587,7 +556,7 @@ void FtpTransport::SetStatus(char type, const char *fmt, ...)
 	if( !UiStatusCallback )
 		return;
 
-	char tmp[1024];
+	char tmp[160];
 	va_list ap;
 
 	va_start(ap, fmt);
@@ -692,14 +661,14 @@ void FtpTransport::SetTransferProgress(bool get, const char *name, uint32_t byte
 
 void FtpTransport::CheckAbortKey()
 {
-	if( _ctrlBreakDetected )
+	if( g_ctrlBreakDetected )
 		return;
 
 	if( biosIsKeyReady() )
 	{
 		uint16_t key = biosKeyRead();
 		if( key == 27 || key == 0x011B || key == 0x0100 )
-			_ctrlBreakDetected = true;
+			g_ctrlBreakDetected = true;
 	}
 }
 
@@ -893,7 +862,7 @@ bool FtpTransport::WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t 
 			SetStatus('W', "Timeout");
 			return false;
 		}
-		if( _ctrlBreakDetected )
+		if( g_ctrlBreakDetected )
 		{
 			SetStatus('W', "Abort");
 			return false;
@@ -905,7 +874,7 @@ bool FtpTransport::WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t 
 
 bool FtpTransport::SendAndWaitRawEx(const char *verb, const char *arg, FtpReply *replyOut, uint32_t timeoutMs)
 {
-	_ctrlBreakDetected = false;
+	g_ctrlBreakDetected = false;
 	ResetReplyState();
 	SendCommandWithState(verb, arg, CmdSent);
 	return WaitForReplyAndFinalize(timeoutMs, replyOut);
@@ -921,7 +890,7 @@ bool FtpTransport::SendAndWaitRaw(const char *verb, const char *arg, uint32_t ti
 
 bool FtpTransport::BeginScenarioAndWaitEx(uint32_t timeoutMs, void (FtpTransport::*scenarioStarter)(), FtpReply *replyOut)
 {
-	_ctrlBreakDetected = false;
+	g_ctrlBreakDetected = false;
 	ResetReplyState();
 	(this->*scenarioStarter)();
 	if( _clientState == CmdLine && _lastReplyCode >= 400u )
@@ -989,7 +958,7 @@ bool FtpTransport::ResolveServer(char *name, IpAddr_t addr)
 
 	while( true )
 	{
-		if( !Dns::isQueryPending() || _ctrlBreakDetected )
+		if( !Dns::isQueryPending() || g_ctrlBreakDetected )
 			break;
 		PACKET_PROCESS_SINGLE;
 		Arp::driveArp();
@@ -1175,7 +1144,9 @@ void FtpTransport::SendCommandWithState(const char *verb, const char *arg, Clien
 		SprintfTrunc(out, sizeof(out), "%s" _NL_, verb);
 	}
 
-	_controlSocket->send((uint8_t *)out, strlen(out));
+	if( _controlSocket->send((uint8_t *)out, strlen(out)) == 0 )
+		return;
+
 	_clientState = nextState;
 }
 
@@ -1345,7 +1316,7 @@ bool FtpTransport::WaitForDataSocket()
 	while( true )
 	{
 		CheckAbortKey();
-		if( _ctrlBreakDetected )
+		if( g_ctrlBreakDetected )
 			return false;
 
 		PACKET_PROCESS_SINGLE;
@@ -1729,7 +1700,7 @@ bool FtpTransport::ReadFileList()
 	while( result == TransferInProgress )
 	{
 		CheckAbortKey();
-		if( _ctrlBreakDetected )
+		if( g_ctrlBreakDetected )
 		{
 			SetStatus('W', "Cancelling...");
 			result = TransferAborted;
@@ -1853,7 +1824,6 @@ static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, ui
 bool FtpTransport::ReceiveFile()
 {
 	char *target_filename = _activeTransfer.localFile;
-	char status_detail[SERVERFILE_MAX_LEN];
 	uint32_t total_received = 0;
 	uint16_t bytes_read = 0;
 	uint16_t bytes_to_read = _recvFileBufSize;
@@ -1870,8 +1840,6 @@ bool FtpTransport::ReceiveFile()
 	if( *target_filename == '\0' )
 		target_filename = _activeTransfer.serverFile;
 
-	CopyTrunc(status_detail, sizeof(status_detail), target_filename);
-
 	FILE *target_file = fopen(target_filename, "wb");
 	if( target_file == NULL )
 	{
@@ -1887,7 +1855,7 @@ bool FtpTransport::ReceiveFile()
 	while( result == TransferInProgress )
 	{
 		CheckAbortKey();
-		if( _ctrlBreakDetected )
+		if( g_ctrlBreakDetected )
 		{
 			SetStatus('W', "Cancelling...");
 			result = TransferAborted;
@@ -1931,7 +1899,7 @@ bool FtpTransport::ReceiveFile()
 				bytes_to_read = _recvFileBufSize;
 				bytes_read = 0;
 
-				if( !_ctrlBreakDetected && ShouldUpdateProgress(last_tick, last_bytes, total_received) )
+				if( !g_ctrlBreakDetected && ShouldUpdateProgress(last_tick, last_bytes, total_received) )
 					SetTransferProgress(true, target_filename, total_received, _activeTransfer.totalBytes);
 			}
 
@@ -1975,12 +1943,11 @@ bool FtpTransport::ReceiveFile()
 	}
 	ClearTransferContext();
 
-	return FinalizeTransfer(TransferActionGet, result, status_detail);
+	return FinalizeTransfer(TransferActionGet, result, target_filename);
 }
 
 bool FtpTransport::SendFile()
 {
-	char status_detail[LOCALFILE_MAX_LEN];
 	uint32_t total_sent = 0;
 	clockTicks_t last_tick = 0;
 	uint32_t last_bytes = 0;
@@ -1992,8 +1959,6 @@ bool FtpTransport::SendFile()
 		ClearTransferContext();
 		return false;
 	}
-
-	CopyTrunc(status_detail, sizeof(status_detail), _activeTransfer.localFile);
 
 	FILE *source_file = fopen(_activeTransfer.localFile, "rb");
 	if( source_file == NULL )
@@ -2011,7 +1976,7 @@ bool FtpTransport::SendFile()
 	while( result == TransferInProgress )
 	{
 		CheckAbortKey();
-		if( _ctrlBreakDetected )
+		if( g_ctrlBreakDetected )
 		{
 			SetStatus('W', "Cancelling...");
 			result = TransferAborted;
@@ -2034,7 +1999,7 @@ bool FtpTransport::SendFile()
 			uint16_t bytes_to_send;
 
 			CheckAbortKey();
-			if( _ctrlBreakDetected )
+			if( g_ctrlBreakDetected )
 			{
 				SetStatus('W', "Cancelling...");
 				result = TransferAborted;
@@ -2076,7 +2041,7 @@ bool FtpTransport::SendFile()
 			PACKET_PROCESS_MULT(5);
 			Tcp::drivePackets();
 
-			if( !_ctrlBreakDetected && ShouldUpdateProgress(last_tick, last_bytes, total_sent) )
+			if( !g_ctrlBreakDetected && ShouldUpdateProgress(last_tick, last_bytes, total_sent) )
 				SetTransferProgress(false, _activeTransfer.localFile, total_sent, _activeTransfer.totalBytes);
 
 			buf = NULL;
@@ -2135,7 +2100,7 @@ bool FtpTransport::SendFile()
 	}
 	ClearTransferContext();
 
-	return FinalizeTransfer(TransferActionPut, result, status_detail);
+	return FinalizeTransfer(TransferActionPut, result, _activeTransfer.localFile);
 }
 
 bool FtpTransport::TryParseUnixListLine(char *line, char *nameOut, int nameOutSize, bool &isDir, uint32_t &sizeOut, char *modifyOut, int modifyOutSize)

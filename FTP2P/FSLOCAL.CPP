@@ -61,7 +61,7 @@ void LocalFsTransport::SetStatus(char type, const char *fmt, ...)
 	if( !UiStatusCallback )
 		return;
 
-	char tmp[1024];
+	char tmp[160];
 	va_list ap;
 
 	va_start(ap, fmt);

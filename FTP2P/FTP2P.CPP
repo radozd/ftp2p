@@ -38,6 +38,58 @@
 #include "timer.h"
 
 
+static volatile bool g_ctrlBreakDetected = false;
+
+class CtrlBreakInstaller
+{
+public:
+	CtrlBreakInstaller() : _oldCtrlBreakHandler(NULL), _oldCtrlCHandler(NULL)
+	{
+		Install();
+	}
+
+	~CtrlBreakInstaller()
+	{
+		Uninstall();
+	}
+
+	static void __interrupt __far Handler()
+	{
+		g_ctrlBreakDetected = true;
+	}
+
+private:
+	void (__interrupt __far *_oldCtrlBreakHandler)();
+	void (__interrupt __far *_oldCtrlCHandler)();
+
+	void Install()
+	{
+		if (_oldCtrlBreakHandler || _oldCtrlCHandler)
+			return;
+
+		_oldCtrlBreakHandler = getvect(0x1b);
+		_oldCtrlCHandler = getvect(0x23);
+
+		setvect(0x1b, Handler);
+		setvect(0x23, Handler);
+	}
+
+	void Uninstall()
+	{
+		if (_oldCtrlBreakHandler)
+		{
+			setvect(0x1b, _oldCtrlBreakHandler);
+			_oldCtrlBreakHandler = NULL;
+		}
+
+		if (_oldCtrlCHandler)
+		{
+			setvect(0x23, _oldCtrlCHandler);
+			_oldCtrlCHandler = NULL;
+		}
+	}
+};
+
 #define FTPSERVERNAME_MAX_LEN (64)
 #define USERNAME_MAX_LEN      (64)
 #define PASSWORD_MAX_LEN      (40)
@@ -105,15 +157,15 @@ static bool ParseHostPort(const char *src)
 			++p;
 		}
 
-		long portVal = atol(colon + 1);
-		if( portVal <= 0 || portVal > 65535 )
+		long val = atol(colon + 1);
+		if( val <= 0 || val > 65535 )
 			return false;
 
 		*colon = '\0';
 		if( tmp[0] == '\0' )
 			return false;
 
-		g_portArg = (uint16_t)portVal;
+		g_portArg = (uint16_t)val;
 	}
 
 	CopyTrunc(g_hostArg, sizeof(g_hostArg), tmp);
@@ -122,7 +174,7 @@ static bool ParseHostPort(const char *src)
 
 static bool ParseArgs(int argc, char *argv[])
 {
-	bool hostSet = false;
+	bool host_set = false;
 
 	g_hostArg[0] = '\0';
 	g_userArg[0] = '\0';
@@ -133,7 +185,7 @@ static bool ParseArgs(int argc, char *argv[])
 	if( argc < 2 )
 		return false;
 
-	for( int i = 1; i < argc; ++i )
+	for( int i = 1; i < argc; i++ )
 	{
 		const char *arg = argv[i];
 
@@ -142,7 +194,7 @@ static bool ParseArgs(int argc, char *argv[])
 			if( i > argc - 2 )
 				return false;
 
-			++i;
+			i++;
 			CopyTrunc(g_userArg, sizeof(g_userArg), argv[i]);
 			if( g_userArg[0] == '\0' )
 				return false;
@@ -152,7 +204,7 @@ static bool ParseArgs(int argc, char *argv[])
 			if( i > argc - 2 )
 				return false;
 
-			++i;
+			i++;
 			CopyTrunc(g_passArg, sizeof(g_passArg), argv[i]);
 			if( g_passArg[0] == '\0' )
 				return false;
@@ -171,20 +223,17 @@ static bool ParseArgs(int argc, char *argv[])
 		}
 		else
 		{
-			if( hostSet )
+			if( host_set )
 				return false;
 
 			if( !ParseHostPort(arg) )
 				return false;
 
-			hostSet = true;
+			host_set = true;
 		}
 	}
 
-	if( !hostSet )
-		return false;
-
-	return true;
+	return host_set;
 }
 
 typedef void (*StatusCallback)(char type, const char *s);
@@ -194,7 +243,7 @@ typedef void (*StatusCallback)(char type, const char *s);
 static UiScreen g_screen;
 /* ------------------------------------------------------------------------- */
 #include "UILIST.CPP"
-#define UI_MAX_ITEMS (2000)
+#define UI_MAX_ITEMS (3000)
 static UiList g_remoteList(UI_MAX_ITEMS, false);
 static UiList g_localList(UI_MAX_ITEMS, true);
 /* ------------------------------------------------------------------------- */
@@ -219,7 +268,7 @@ void SetStatusCB(char type, const char *s)
 }
 
 /* ------------------------------------------------------------------------- */
-#define APP_VERSION "v3.4.1"
+#define APP_VERSION "v3.5"
 
 int main(int argc, char *argv[])
 {
@@ -252,6 +301,7 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	CtrlBreakInstaller cbreak;
 	InitDosCharset();
 
 	if( !g_local.Init(SetStatusCB, &g_localList) )
@@ -260,7 +310,7 @@ int main(int argc, char *argv[])
 	if( !g_ftp.Init(SetStatusCB, &g_remoteList) )
 		return 1;
 
-	if( !g_ftp.ConnectAndLogin(g_hostArg, g_portArg, g_userArg, g_passArg) )
+	if( !g_ftp.ConnectAndLogin(CtrlBreakInstaller::Handler, g_hostArg, g_portArg, g_userArg, g_passArg) )
 	{
 		g_ftp.Cleanup();
 		return 1;
