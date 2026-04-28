@@ -20,8 +20,91 @@
 
 #include "DTIME.CPP"
 
-#define UI_NAME_MAX     (128)
-#define	NAME_POOL_SIZE  (64000u)
+#define UI_NAME_MAX          (128)
+#define NAME_POOL_BLOCK_SIZE (16u * 1024u)
+
+struct NamePoolBlock
+{
+	struct NamePoolBlock *next;
+	size_t used;
+	size_t size;
+	char data[1];
+};
+
+class NamePool
+{
+public:
+	NamePool()
+	{
+		_first = NULL;
+		_last = NULL;
+	}
+
+	~NamePool()
+	{
+		Clear();
+	}
+
+	void Clear()
+	{
+		NamePoolBlock *b = _first;
+		while( b != NULL )
+		{
+			NamePoolBlock *next = b->next;
+			free(b);
+			b = next;
+		}
+
+		_first = NULL;
+		_last = NULL;
+	}
+
+	char *Add(const char *name)
+	{
+		if( name == NULL )
+			name = "";
+
+		size_t need = strlen(name) + 1u;
+		if( _last == NULL || need > _last->size - _last->used )
+		{
+			if( AllocBlock(need) == NULL )
+				return NULL;
+		}
+
+		char *dst = _last->data + _last->used;
+		memcpy(dst, name, need);
+		_last->used = _last->used + need;
+		return dst;
+	}
+
+private:
+	NamePoolBlock *_first;
+	NamePoolBlock *_last;
+
+	NamePoolBlock *AllocBlock(size_t need)
+	{
+		size_t size = NAME_POOL_BLOCK_SIZE;
+		if( need > size )
+			size = need;
+
+		NamePoolBlock *b = (NamePoolBlock *)malloc(sizeof(NamePoolBlock) + size - 1u);
+		if( b == NULL )
+			return NULL;
+
+		b->next = NULL;
+		b->used = 0;
+		b->size = size;
+
+		if( _last != NULL )
+			_last->next = b;
+		else
+			_first = b;
+
+		_last = b;
+		return b;
+	}
+};
+
 
 typedef struct
 {
@@ -37,7 +120,7 @@ public:
 	UiList(size_t cap, bool dosNames=false);
 	~UiList();
 
-	bool Ok() const { return _items != NULL && _namePool != NULL; }
+	bool Ok() const { return _items != NULL; }
 	void Clear();
 	void Sort();
 
@@ -90,10 +173,7 @@ private:
 	char _cwd[128];
 	OemCp _encoding;
 
-	char *_namePool;
-	size_t _namePoolUsed;
-	size_t _namePoolSize;
-
+	NamePool _namePool;
 	DateTimeCodec _dtcodec;
 
 	UiEntry *_items;	
@@ -120,8 +200,6 @@ UiList::UiList(size_t cap, bool dosNames)
 	_truncated = false;
 	_needRefresh = true;
 	_items = NULL;
-	_namePool = NULL;
-	_namePoolUsed = 0;
 	_cwd[0] = '\0';
 	_encoding = g_encoding;
 	_pendingSelection[0] = '\0';
@@ -133,40 +211,20 @@ UiList::UiList(size_t cap, bool dosNames)
 
 	_capacity = cap;
 	_items = (UiEntry *)calloc(cap, sizeof(UiEntry));
-
-	if( _dosNames )
-	{
-		unsigned long need = (unsigned long)cap * 13; // 8.3\0
-		if( need > NAME_POOL_SIZE )
-			need = NAME_POOL_SIZE;
-		_namePoolSize = (size_t)need;
-	}
-	else
-	{
-		_namePoolSize = (size_t)NAME_POOL_SIZE;
-	}
-	_namePool = (char *)malloc(_namePoolSize);
 }
 
 UiList::~UiList()
 {
 	if( _items )
 		free(_items);
-	if( _namePool )
-		free(_namePool);
 	_items = NULL;
-	_namePool = NULL;
-	_namePoolUsed = 0;
-	_namePoolSize = 0;
+	
+	Clear();
+	ClearPendingSelection();
+
 	_capacity = 0;
-	_count = 0;
-	_sel = 0;
-	_top = 0;
 	_dosNames = false;
-	_truncated = false;
 	_needRefresh = false;
-	_pendingSelection[0] = '\0';
-	_fallbackSelectionIndex = -1;
 	_freeBytes = -1;
 }
 
@@ -189,27 +247,10 @@ void UiList::Clear()
 	_sel = 0;
 	_top = 0;
 	_truncated = false;
-	_namePoolUsed = 0;
 	_fallbackSelectionIndex = -1;
+
 	_dtcodec.Clear();
-}
-
-char *UiList::AllocName(const char *name)
-{
-	if( _namePool == NULL )
-		return NULL;
-
-	if( name == NULL )
-		name = "";
-
-	size_t need = strlen(name) + 1u;
-	if( need > _namePoolSize - _namePoolUsed )
-		return NULL;
-
-	char *dst = _namePool + _namePoolUsed;
-	memcpy(dst, name, need);
-	_namePoolUsed = _namePoolUsed + need;
-	return dst;
+	_namePool.Clear();
 }
 
 int UiList::EntryCmp(const void *a, const void *b)
@@ -346,7 +387,7 @@ UiEntry *UiList::Add(const char *name, char kind, uint32_t size, const char *mod
 		return NULL;
 	}
 
-	char *stored = AllocName(name);
+	char *stored = _namePool.Add(name);
 	if( stored == NULL )
 	{
 		_truncated = true;
