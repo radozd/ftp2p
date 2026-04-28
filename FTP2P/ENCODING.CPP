@@ -893,6 +893,11 @@ static bool IsGoodDosChar(unsigned char c, bool strict = false)
 	return (c >= 0x20 && c <= 0x7E) || (c >= 0x80 && c < 0xF0);
 }
 
+static bool IsBadDosTailChar(unsigned char c)
+{
+	return c == '_' || c == '-' || c == '~' || c == '\'' || c == '(' || c == '`' || c == '{';
+}
+
 static bool AppendDosChar(char *dst, size_t dstSize, size_t &pos, unsigned ch)
 {
 	if( dst == NULL || dstSize == 0 )
@@ -996,6 +1001,9 @@ static bool MakeDosName(char *dst, const char *src)
 		if( IsGoodDosChar((unsigned char)name[i], true) )
 			base[bi++] = name[i];
 	}
+
+	while( bi > 0 && IsBadDosTailChar((unsigned char)base[bi - 1]) )
+		bi--;
 
 	if( bi == 0 )
 		base[bi++] = 'F';
