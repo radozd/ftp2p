@@ -18,13 +18,15 @@
 	along with FTP2P. If not, see <https://www.gnu.org/licenses/>.
 */
 
+#include "DTIME.CPP"
+
 #define UI_NAME_MAX     (128)
 #define	NAME_POOL_SIZE  (64000u)
 
 typedef struct
 {
 	char *name;
-	char modif[20];
+	uint32_t modif;
 	uint32_t size;
 	char kind;   /* 'p' parent, 'd' dir, 'f' file, 'F' selected file */
 } UiEntry;
@@ -91,6 +93,8 @@ private:
 	char *_namePool;
 	size_t _namePoolUsed;
 	size_t _namePoolSize;
+
+	DateTimeCodec _dtcodec;
 
 	UiEntry *_items;	
 	size_t _count;
@@ -187,6 +191,7 @@ void UiList::Clear()
 	_truncated = false;
 	_namePoolUsed = 0;
 	_fallbackSelectionIndex = -1;
+	_dtcodec.Clear();
 }
 
 char *UiList::AllocName(const char *name)
@@ -321,11 +326,14 @@ void UiList::PrintStats(char *dst, int maxw, UiEntry *e)
 	char sizebuf[32];
 	FormatSize(sizebuf, sizeof(sizebuf), e->size);
 
-	int spaces = maxw - strlen(sizebuf) - strlen(e->modif) - 1;
+	char dtbuf[20];
+	_dtcodec.Decode(dtbuf, sizeof(dtbuf), e->modif);
+
+	int spaces = maxw - strlen(sizebuf) - strlen(dtbuf) - 1;
 	if( spaces < 1 )
 		spaces = 1;
 
-	SprintfTrunc(dst, maxw, "%s%*s%s", sizebuf, spaces, "", e->modif);
+	SprintfTrunc(dst, maxw, "%s%*s%s", sizebuf, spaces, "", dtbuf);
 }
 
 UiEntry *UiList::Add(const char *name, char kind, uint32_t size, const char *modif)
@@ -349,7 +357,7 @@ UiEntry *UiList::Add(const char *name, char kind, uint32_t size, const char *mod
 	e->name = stored;
 	e->kind = kind;
 	e->size = size;
-	CopyTrunc(e->modif, sizeof(e->modif), modif);
+	e->modif = _dtcodec.Encode(modif);
 
 	_count++;
 	return e;
