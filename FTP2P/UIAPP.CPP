@@ -306,6 +306,10 @@ void UiApp::Loop()
 		{
 			_needRedraw = GetActiveList()->ToggleCurrentSelection(false);
 		}
+		else if( ('A' <= ascii && ascii <= 'Z') || ('a' <= ascii && ascii <= 'z') || ('0' <= ascii && ascii <= '9') )
+		{
+			_needRedraw = GetActiveList()->SelectByFirstChar(ascii);
+		}
 		else if( key == UI_KEY_GRAY_PLUS )
 		{
 			GetActiveList()->SelectAllFiles();

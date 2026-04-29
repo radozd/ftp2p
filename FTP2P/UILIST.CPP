@@ -142,6 +142,7 @@ public:
 	UiEntry *FindByName(const char *name);
 	
 	bool SelectByName(const char *name);
+	bool SelectByFirstChar(int ch);
 	void EnsureVisible(int height);
 	bool MoveSel(int delta);
 	bool ToggleCurrentSelection(bool moveAfter);
@@ -444,6 +445,32 @@ bool UiList::SelectByName(const char *name)
 		if( stricmp(_items[i].name, name) == 0 )
 		{
 			_sel = i;
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool UiList::SelectByFirstChar(int ch)
+{
+	if( _count == 0 || ch <= 0 )
+		return false;
+
+	int needle = CharToUpper(ch & 0xFF, g_encoding);
+	int start = 0 <= _sel && _sel < _count ? _sel + 1 : 0;
+
+	for( size_t n = 0; n < _count; n++ )
+	{
+		size_t i = (size_t)((start + (int)n) % (int)_count);
+		UiEntry *e = &_items[i];
+
+		if( e->kind == 'p' || e->name == NULL || e->name[0] == '\0' )
+			continue;
+
+		if( CharToUpper((unsigned char)e->name[0], g_encoding) == needle )
+		{
+			_sel = (int)i;
 			return true;
 		}
 	}

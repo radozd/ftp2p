@@ -52,7 +52,7 @@ void InitDosCharset()
 	default:
 		g_encoding = OEM_CP866;		
 	}
-	printf("Current CP = %d\n", r.x.bx);
+	printf("CP%d\n", r.x.bx);
 }
 
 void CountOemChars(const char *s, unsigned &cp850, unsigned &cp852, unsigned &cp866)
@@ -782,6 +782,26 @@ void OemToUtf8(char *dst, size_t dstSize, const char *src, OemCp encoding)
 	dst[pos] = '\0';
 }
 
+unsigned char CharToUpper(unsigned char c, OemCp encoding)
+{
+	switch( encoding )
+	{
+	case OEM_CP866:
+		return ToUpperCp866Ch(c);
+
+	case OEM_CP852:
+		return ToUpperCp852Ch(c);
+
+	case OEM_CP850:
+		return ToUpperCp850Ch(c);
+
+	default:
+		if( c >= 'a' && c <= 'z' )
+			c = (unsigned char)(c - 'a' + 'A');
+		return c;
+	}
+}
+
 void StrToUpper(char *s, OemCp encoding)
 {
 	if( s == NULL )
@@ -790,28 +810,27 @@ void StrToUpper(char *s, OemCp encoding)
 	while( *s )
 	{
 		unsigned char c = (unsigned char)*s;
+		*s++ = (char)CharToUpper(c, encoding);
+	}
+}
 
-		switch( encoding )
-		{
-		case OEM_CP866:
-			c = ToUpperCp866Ch(c);
-			break;
+unsigned char CharToLower(unsigned char c, OemCp encoding)
+{
+	switch( encoding )
+	{
+	case OEM_CP866:
+		return ToLowerCp866Ch(c);
 
-		case OEM_CP852:
-			c = ToUpperCp852Ch(c);
-			break;
+	case OEM_CP852:
+		return ToLowerCp852Ch(c);
 
-		case OEM_CP850:
-			c = ToUpperCp850Ch(c);
-			break;
+	case OEM_CP850:
+		return ToLowerCp850Ch(c);
 
-		default:
-			if( c >= 'a' && c <= 'z' )
-				c = (unsigned char)(c - 'a' + 'A');
-			break;
-		}
-
-		*s++ = (char)c;
+	default:
+		if( c >= 'A' && c <= 'Z' )
+			c = (unsigned char)(c - 'A' + 'a');
+		return c;
 	}
 }
 
@@ -823,28 +842,7 @@ void StrToLower(char *s, OemCp encoding)
 	while( *s )
 	{
 		unsigned char c = (unsigned char)*s;
-
-		switch( encoding )
-		{
-		case OEM_CP866:
-			c = ToLowerCp866Ch(c);
-			break;
-
-		case OEM_CP852:
-			c = ToLowerCp852Ch(c);
-			break;
-
-		case OEM_CP850:
-			c = ToLowerCp850Ch(c);
-			break;
-
-		default:
-			if( c >= 'A' && c <= 'Z' )
-				c = (unsigned char)(c - 'A' + 'a');
-			break;
-		}
-
-		*s++ = (char)c;
+		*s++ = (char)CharToLower(c, encoding);
 	}
 }
 
