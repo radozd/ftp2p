@@ -141,9 +141,7 @@ bool LocalFsTransport::ListCwd()
 
 bool LocalFsTransport::RefreshList()
 {
-	if( !ReadCwd() )
-		return false;
-	return ListCwd();
+	return ReadCwd() && ListCwd();
 }
 
 bool LocalFsTransport::ChangeToParentDir()

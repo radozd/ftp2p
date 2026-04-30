@@ -268,7 +268,7 @@ void SetStatusCB(char type, const char *s)
 }
 
 /* ------------------------------------------------------------------------- */
-#define APP_VERSION "v3.5"
+#define APP_VERSION "v3.6"
 
 int main(int argc, char *argv[])
 {
@@ -324,9 +324,11 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	g_app.Loop();
+	const char *message = g_app.Loop();
 
 	g_ftp.Cleanup();
 	g_app.Cleanup();
+
+	printf("%s\n", message);
 	return 0;
 }

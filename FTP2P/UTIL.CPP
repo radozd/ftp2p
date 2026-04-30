@@ -279,6 +279,41 @@ void FormatSize(char *dst, size_t dstSize, __int64 bytes)
 	}
 }
 
+void FormatDuration(char *dst, size_t dstSize, uint32_t elapsedMs)
+{
+	if( dst == NULL || dstSize == 0 )
+		return;
+
+	uint32_t sec = elapsedMs / 1000u;
+	unsigned long h = sec / 3600ul;
+	unsigned long m = (sec / 60ul) % 60ul;
+	unsigned long s = sec % 60ul;
+
+	if( h > 0 )
+		SprintfTrunc(dst, dstSize, "%lu:%02lu:%02lu", h, m, s);
+	else
+		SprintfTrunc(dst, dstSize, "%lu:%02lu", m, s);
+}
+
+static uint32_t ComputeRate(uint32_t bytes, uint32_t elapsedMs)
+{
+	uint32_t rate;
+
+	if( elapsedMs == 0 )
+		elapsedMs = 55;
+
+	if( bytes < 2000000ul )
+		rate = (bytes * 1000) / elapsedMs;
+	else if( bytes < 20000000ul )
+		rate = (bytes * 100) / (elapsedMs / 10);
+	else if( bytes < 200000000ul )
+		rate = (bytes * 10) / (elapsedMs / 100);
+	else
+		rate = bytes / (elapsedMs / 1000);
+
+	return rate;
+}
+
 static void ProbeFreeMem(char *buf, size_t bufSize)
 {
 	buf[0] = '\0';

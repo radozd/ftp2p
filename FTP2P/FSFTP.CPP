@@ -204,6 +204,7 @@ private:
 	
 	bool _multilineResponse;
 	bool _stackStarted;
+	bool _scenarioFailed;
 
 	void CloseDataSocketsOnly();
 	void DestroySockets();
@@ -219,6 +220,7 @@ private:
 	void ResetReplyState();
 	void TouchScenarioActivity();
 	void AppendReplyLine(const char *line);
+	void SetLocalError(uint16_t code, const char *message);
 	void FinalizeReply(FtpReply *replyOut);
 	bool WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t mask1);
 
@@ -234,12 +236,14 @@ private:
 	bool WaitForGreeting(uint32_t timeoutMs);
 	bool LoginWithCredentials(uint32_t timeoutMs);
 
-	void SendCommandWithState(const char *verb, const char *arg, ClientState_t nextState);
-	void SendPasvCommand();
-	void SendPortCommand();
+	bool SendCommandWithState(const char *verb, const char *arg, ClientState_t nextState);
+	bool SendPasvCommand(ClientState_t nextState);
+	bool SendPortCommand(ClientState_t nextState);
 	void SendUserCommand(const char *username);
 	void SendPassCommand(const char *password);
-	void SendStorCommand(ClientState_t nextState);
+	bool SendStorCommand(ClientState_t nextState);
+	bool SendRetrCommand(ClientState_t nextState);
+	bool SendListCommand(ClientState_t nextState);
 
 	void StartList();
 	void StartRetrieve();
@@ -298,6 +302,7 @@ FtpTransport::FtpTransport()
 	_replyCodeInProgress = 0;
 	_multilineResponse = false;
 	_stackStarted = false;
+	_scenarioFailed = false;
 
 	_inBuf = NULL;
 	_inBufIndex = 0;
@@ -534,7 +539,8 @@ bool FtpTransport::Shutdown(uint32_t quitTimeoutMs)
 		return true;
 
 	ResetReplyState();
-	SendCommandWithState("QUIT", NULL, CmdSent);
+	if( !SendCommandWithState("QUIT", NULL, CmdSent) )
+		return false;
 
 	if( quitTimeoutMs == 0 )
 		return true;
@@ -792,7 +798,7 @@ bool FtpTransport::WaitForReplyAndFinalize(uint32_t timeoutMs, FtpReply *replyOu
 		return false;
 
 	FinalizeReply(replyOut);
-	return true;
+	return !_scenarioFailed;
 }
 
 void FtpTransport::ResetReplyState()
@@ -802,6 +808,7 @@ void FtpTransport::ResetReplyState()
 	_replyText[0] = '\0';
 	_replyCodeInProgress = 0;
 	_multilineResponse = false;
+	_scenarioFailed = false;
 	TouchScenarioActivity();
 }
 
@@ -820,6 +827,21 @@ void FtpTransport::AppendReplyLine(const char *line)
 
 	strncat(_replyText, line, sizeof(_replyText) - 1u - strlen(_replyText));
 	_replyText[sizeof(_replyText) - 1u] = '\0';
+}
+
+void FtpTransport::SetLocalError(uint16_t code, const char *message)
+{
+	char line[SERVER_RESP_MAX_LEN];
+
+	_scenarioFailed = true;
+	_lastReplyCode = code;
+	SprintfTrunc(line, sizeof(line), "FTP error %u (%s)", code, message);
+	CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), line);
+	CopyTrunc(_replyText, sizeof(_replyText), line);
+	_clientState = CmdLine;
+	TouchScenarioActivity();
+
+	SetStatus('E', message);
 }
 
 void FtpTransport::FinalizeReply(FtpReply *replyOut)
@@ -876,7 +898,11 @@ bool FtpTransport::SendAndWaitRawEx(const char *verb, const char *arg, FtpReply 
 {
 	g_ctrlBreakDetected = false;
 	ResetReplyState();
-	SendCommandWithState(verb, arg, CmdSent);
+	if( !SendCommandWithState(verb, arg, CmdSent) )
+	{
+		FinalizeReply(replyOut);
+		return false;
+	}
 	return WaitForReplyAndFinalize(timeoutMs, replyOut);
 }
 
@@ -1115,27 +1141,26 @@ bool FtpTransport::LoginWithCredentials(uint32_t timeoutMs)
 	return true;
 }
 
-void FtpTransport::SendCommandWithState(const char *verb, const char *arg, ClientState_t nextState)
+bool FtpTransport::SendCommandWithState(const char *verb, const char *arg, ClientState_t nextState)
 {
 	char out[SERVERFILE_MAX_LEN + 16];
+	uint16_t outLen;
+	int16_t sent;
 
 	if( _controlSocket == NULL )
 	{
-		_lastReplyCode = 421;
-		CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), "Control socket is closed");
-		_clientState = CmdLine;
-		return;
+		SetLocalError(421, "Control socket is closed");
+		return false;
 	}
 
 	if( arg && *arg != '\0' )
 	{
 		if( strlen(verb) + 1u + strlen(arg) + 2u >= sizeof(out) )
 		{
-			SetStatus('E', "FTP command too long: %s", verb);
-			_lastReplyCode = 553;
-			CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), "FTP command too long");
-			_clientState = CmdLine;
-			return;
+			char buf[64];
+			SprintfTrunc(buf, sizeof(buf), "FTP command too long: %s", verb);
+			SetLocalError(553, buf);
+			return false;
 		}
 		SprintfTrunc(out, sizeof(out), "%s %s" _NL_, verb, arg);
 	}
@@ -1144,33 +1169,44 @@ void FtpTransport::SendCommandWithState(const char *verb, const char *arg, Clien
 		SprintfTrunc(out, sizeof(out), "%s" _NL_, verb);
 	}
 
-	if( _controlSocket->send((uint8_t *)out, strlen(out)) == 0 )
-		return;
+	outLen = (uint16_t)strlen(out);
+	sent = _controlSocket->send((uint8_t *)out, outLen);
+	if( sent != (int16_t)outLen )
+	{
+		char buf[64];
+		SprintfTrunc(buf, sizeof(buf), "Failed to send FTP command: %s", verb);
+		SetLocalError(421, buf);
+		return false;
+	}
 
 	_clientState = nextState;
+	return true;
 }
 
-void FtpTransport::SendPasvCommand()
+bool FtpTransport::SendPasvCommand(ClientState_t nextState)
 {
-	_controlSocket->send((uint8_t *)"PASV" _NL_, 6);
+	return SendCommandWithState("PASV", NULL, nextState);
 }
 
-void FtpTransport::SendPortCommand()
+bool FtpTransport::SendPortCommand(ClientState_t nextState)
 {
 	_dataPort = AllocNextEphemeralPort();
-
 	if( !ListenForDataSocket() )
 	{
-		_lastReplyCode = 425;
-		CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), "Could not open local listening socket");
-		_clientState = CmdLine;
-		return;
+		SetLocalError(425, "Could not open local listening socket");
+		return false;
 	}
 
 	char buf[50];
-	int bytes = sprintf(buf, "PORT %d,%d,%d,%d,%d,%d" _NL_, MyIpAddr[0], MyIpAddr[1], MyIpAddr[2], MyIpAddr[3], _dataPort / 256, _dataPort % 256);
+	SprintfTrunc(buf, sizeof(buf), "%d,%d,%d,%d,%d,%d", MyIpAddr[0], MyIpAddr[1], MyIpAddr[2], MyIpAddr[3], _dataPort / 256, _dataPort % 256);
 
-	_controlSocket->send((uint8_t *)buf, bytes);
+	if( !SendCommandWithState("PORT", buf, nextState) )
+	{
+		_listenSocket->close();
+		return false;
+	}
+
+	return true;
 }
 
 void FtpTransport::SendUserCommand(const char *username)
@@ -1189,40 +1225,49 @@ void FtpTransport::SendPassCommand(const char *password)
 		SendCommandWithState("PASS", password, SentPass);
 }
 
-void FtpTransport::SendStorCommand(ClientState_t nextState)
+bool FtpTransport::SendStorCommand(ClientState_t nextState)
 {
 	const char *filename = _activeTransfer.localFile;
 
 	if( *_activeTransfer.serverFile != 0 )
 		filename = _activeTransfer.serverFile;
 
-	SendCommandWithState("STOR", filename, nextState);
+	return SendCommandWithState("STOR", filename, nextState);
+}
+
+bool FtpTransport::SendRetrCommand(ClientState_t nextState)
+{
+	return SendCommandWithState("RETR", _activeTransfer.serverFile, nextState);
+}
+
+bool FtpTransport::SendListCommand(ClientState_t nextState)
+{
+	return SendCommandWithState("LIST", NULL, nextState);
 }
 
 void FtpTransport::StartList()
 {
 	if( _transferMode == Passive )
 	{
-		SendPasvCommand();
-		_clientState = ListSentPasv;
+		SendPasvCommand(ListSentPasv);
 	}
 	else if( _transferMode == PortFirst )
 	{
-		SendPortCommand();
-		if( _clientState != CmdLine )
-			_clientState = ListSentPort;
+		SendPortCommand(ListSentPort);
 	}
 	else
 	{
 		_dataPort = AllocNextEphemeralPort();
 		if( !ListenForDataSocket() )
 		{
-			_lastReplyCode = 425;
-			CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), "Could not open local listening socket");
-			_clientState = CmdLine;
+			SetLocalError(425, "Could not open local listening socket");
 			return;
 		}
-		SendCommandWithState("LIST", NULL, ListSentActive);
+		if( !SendListCommand(ListSentActive) )
+		{
+			_listenSocket->close();
+			return;
+		}
 	}
 }
 
@@ -1240,29 +1285,27 @@ void FtpTransport::StartTransfer(bool get)
 {
 	if( _transferMode == Passive )
 	{
-		SendPasvCommand();
-		_clientState = get ? RetrSentPasv : StorSentPasv;
+		SendPasvCommand(get ? RetrSentPasv : StorSentPasv);
 	}
 	else if( _transferMode == PortFirst )
 	{
-		SendPortCommand();
-		if( _clientState != CmdLine )
-			_clientState = get ? RetrSentPort : StorSentPort;
+		SendPortCommand(get ? RetrSentPort : StorSentPort);
 	}
 	else
 	{
 		_dataPort = AllocNextEphemeralPort();
 		if( !ListenForDataSocket() )
 		{
-			_lastReplyCode = 425;
-			CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), "Could not open local listening socket");
-			_clientState = CmdLine;
+			SetLocalError(425, "Could not open local listening socket");
 			return;
 		}
-		if( get )
-			SendCommandWithState("RETR", _activeTransfer.serverFile, RetrSentActive);
-		else
-			SendStorCommand(StorSentActive);
+
+		bool ok = get ? SendRetrCommand(RetrSentActive) : SendStorCommand(StorSentActive);
+		if( !ok )
+		{
+			_listenSocket->close();
+			return;
+		}
 	}
 }
 
@@ -1415,10 +1458,10 @@ void FtpTransport::HandlePortReadyReply(ClientState_t replyState)
 	switch( replyState )
 	{
 	case ListSentPort:
-		SendCommandWithState("LIST", NULL, ListSentAfterPort);
+		SendListCommand(ListSentAfterPort);
 		break;
 	case RetrSentPort:
-		SendCommandWithState("RETR", _activeTransfer.serverFile, RetrSentAfterPort);
+		SendRetrCommand(RetrSentAfterPort);
 		break;
 	case StorSentPort:
 		SendStorCommand(StorSentAfterPort);
@@ -1433,8 +1476,7 @@ void FtpTransport::HandlePasvReply(ClientState_t replyState, char *pos)
 {
 	if( !ParsePASVResponse(pos) )
 	{
-		SetStatus('E', "Unable to parse PASV response");
-		_clientState = CmdLine;
+		SetLocalError(425, "Unable to parse PASV response");
 		return;
 	}
 
@@ -1442,8 +1484,7 @@ void FtpTransport::HandlePasvReply(ClientState_t replyState, char *pos)
 	{
 		if( !ConnectDataSocket() )
 		{
-			SetStatus('E', "Error connecting data socket");
-			_clientState = CmdLine;
+			SetLocalError(425, "Error connecting data socket");
 			return;
 		}
 	}
@@ -1451,10 +1492,10 @@ void FtpTransport::HandlePasvReply(ClientState_t replyState, char *pos)
 	switch( replyState )
 	{
 	case ListSentPasv:
-		SendCommandWithState("LIST", NULL, ListSentAfterPasv);
+		SendListCommand(ListSentAfterPasv);
 		break;
 	case RetrSentPasv:
-		SendCommandWithState("RETR", _activeTransfer.serverFile, RetrSentAfterPasv);
+		SendRetrCommand(RetrSentAfterPasv);
 		break;
 	case StorSentPasv:
 		SendStorCommand(StorSentAfterPasv);
@@ -1529,7 +1570,7 @@ void FtpTransport::ProcessSocketInput()
 	case 150:
 		if( !HandlePreliminaryReply(reply_state) )
 		{
-			_clientState = CmdLine;
+			SetLocalError(426, "Local data transfer failed");
 			CloseDataSocketsOnly();
 		}
 		break;
@@ -1643,18 +1684,10 @@ int FtpTransport::GetLineFromInBuf(char *target, int16_t targetLen)
 
 bool FtpTransport::ParsePASVResponse(char *pos)
 {
-	uint8_t found = 0;
-	while( *pos )
-	{
-		if( isdigit((unsigned char)*pos) )
-		{
-			found = 1;
-			break;
-		}
+	while( *pos && !isdigit((unsigned char)*pos) )
 		pos++;
-	}
 
-	if( !found )
+	if( *pos == '\0' )
 	{
 		_pasvAddr[0] = _pasvAddr[1] = _pasvAddr[2] = _pasvAddr[3] = 0;
 		_pasvPort = 0;
@@ -1663,7 +1696,8 @@ bool FtpTransport::ParsePASVResponse(char *pos)
 
 	unsigned int t0, t1, t2, t3, t4, t5;
 	int rc = sscanf(pos, "%d,%d,%d,%d,%d,%d", &t0, &t1, &t2, &t3, &t4, &t5);
-	if( rc != 6 )
+	if( rc != 6 || t0 > 255u || t1 > 255u || t2 > 255u || t3 > 255u ||
+		t4 > 255u || t5 > 255u || ((t4 << 8) + t5) == 0u )
 	{
 		_pasvAddr[0] = _pasvAddr[1] = _pasvAddr[2] = _pasvAddr[3] = 0;
 		_pasvPort = 0;
@@ -1710,6 +1744,12 @@ bool FtpTransport::ReadFileList()
 		PACKET_PROCESS_SINGLE;
 		Arp::driveArp();
 		Tcp::drivePackets();
+
+		if( IsControlClosed() )
+		{
+			result = TransferSocketError;
+			break;
+		}
 
 		if( _dataSocket->isRemoteClosed() )
 		{
@@ -1770,25 +1810,6 @@ bool FtpTransport::ReadFileList()
 	return FinalizeTransfer(TransferActionList, result);
 }
 
-static uint32_t ComputeRate(uint32_t bytes, uint32_t elapsed)
-{
-	uint32_t rate;
-
-	if( elapsed == 0 )
-		elapsed = 55;
-
-	if( bytes < 2000000ul )
-		rate = (bytes * 1000) / elapsed;
-	else if( bytes < 20000000ul )
-		rate = (bytes * 100) / (elapsed / 10);
-	else if( bytes < 200000000ul )
-		rate = (bytes * 10) / (elapsed / 100);
-	else
-		rate = bytes / (elapsed / 1000);
-
-	return rate;
-}
-
 static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, uint32_t bytesNow)
 {
 	if( bytesNow <= lastBytes )
@@ -1823,13 +1844,12 @@ static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, ui
 
 bool FtpTransport::ReceiveFile()
 {
-	char *target_filename = _activeTransfer.localFile;
+	const char *target_filename = _activeTransfer.localFile;
 	uint32_t total_received = 0;
 	uint16_t bytes_read = 0;
 	uint16_t bytes_to_read = _recvFileBufSize;
 	clockTicks_t last_tick = 0;
 	uint32_t last_bytes = 0;
-	int rc;
 	TransferResult_t result = TransferInProgress;
 
 	if( _dataSocket == NULL )
@@ -1866,6 +1886,12 @@ bool FtpTransport::ReceiveFile()
 		Arp::driveArp();
 		Tcp::drivePackets();
 
+		if( IsControlClosed() )
+		{
+			result = TransferSocketError;
+			break;
+		}
+
 		if( _dataSocket->isRemoteClosed() )
 		{
 			TouchScenarioActivity();
@@ -1889,7 +1915,7 @@ bool FtpTransport::ReceiveFile()
 
 			if( bytes_to_read == 0 )
 			{
-				rc = fwrite(_fileBuffer, bytes_read, 1, target_file);
+				int rc = fwrite(_fileBuffer, bytes_read, 1, target_file);
 				if( rc != 1 )
 				{
 					result = TransferFileError;
@@ -1916,9 +1942,15 @@ bool FtpTransport::ReceiveFile()
 
 	if( result == TransferCompleted && bytes_read )
 	{
-		rc = fwrite(_fileBuffer, bytes_read, 1, target_file);
+		int rc = fwrite(_fileBuffer, bytes_read, 1, target_file);
 		if( rc != 1 )
 			result = TransferFileError;
+	}
+
+	if( result == TransferCompleted && _activeTransfer.totalBytes > 0 && total_received != _activeTransfer.totalBytes )
+	{
+		SetStatus('E', "GET size mismatch: expected %lu bytes, received %lu bytes", _activeTransfer.totalBytes, total_received);
+		result = TransferSocketError;
 	}
 
 	if( result == TransferCompleted && total_received > 0 )
@@ -1930,24 +1962,15 @@ bool FtpTransport::ReceiveFile()
 	if( result != TransferCompleted )
 		remove(target_filename);
 
-	if( result == TransferCompleted )
-	{
-		uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
-		uint32_t rate = ComputeRate(total_received, elapsed);
-
-		char sizebuf[32];
-		FormatSize(sizebuf, sizeof(sizebuf), total_received);
-
-		SetStatus('T', "%s received in %lu.%1lu seconds (%lu.%1lu KBytes/sec)",
-			sizebuf, elapsed / 1000u, (elapsed % 1000u) / 100u, rate / 1024u, ((rate % 1024u) * 10u) / 1024u);
-	}
+	bool ok = FinalizeTransfer(TransferActionGet, result, target_filename);
 	ClearTransferContext();
 
-	return FinalizeTransfer(TransferActionGet, result, target_filename);
+	return ok;
 }
 
 bool FtpTransport::SendFile()
 {
+	const char *source_filename = _activeTransfer.localFile;
 	uint32_t total_sent = 0;
 	clockTicks_t last_tick = 0;
 	uint32_t last_bytes = 0;
@@ -1960,10 +1983,10 @@ bool FtpTransport::SendFile()
 		return false;
 	}
 
-	FILE *source_file = fopen(_activeTransfer.localFile, "rb");
+	FILE *source_file = fopen(source_filename, "rb");
 	if( source_file == NULL )
 	{
-		SetStatus('E', "Error opening file %s for reading", _activeTransfer.localFile);
+		SetStatus('E', "Error opening file %s for reading", source_filename);
 		CloseAndFreeDataSocket();
 		ClearTransferContext();
 		return false;
@@ -1987,6 +2010,12 @@ bool FtpTransport::SendFile()
 		Arp::driveArp();
 		Tcp::drivePackets();
 
+		if( IsControlClosed() )
+		{
+			result = TransferSocketError;
+			break;
+		}
+
 		if( _dataSocket->isRemoteClosed() )
 		{
 			TouchScenarioActivity();
@@ -1996,8 +2025,6 @@ bool FtpTransport::SendFile()
 
 		while( _dataSocket->outgoing.hasRoom() )
 		{
-			uint16_t bytes_to_send;
-
 			CheckAbortKey();
 			if( g_ctrlBreakDetected )
 			{
@@ -2012,7 +2039,7 @@ bool FtpTransport::SendFile()
 				if( buf == NULL )
 					break;
 
-				bytes_to_send = fread(buf->data, 1, _dataSocket->maxEnqueueSize, source_file);
+				uint16_t bytes_to_send = fread(buf->data, 1, _dataSocket->maxEnqueueSize, source_file);
 				if( bytes_to_send == 0 )
 				{
 					TcpBuffer::returnXmitBuf((TcpBuffer *)buf);
@@ -2042,7 +2069,7 @@ bool FtpTransport::SendFile()
 			Tcp::drivePackets();
 
 			if( !g_ctrlBreakDetected && ShouldUpdateProgress(last_tick, last_bytes, total_sent) )
-				SetTransferProgress(false, _activeTransfer.localFile, total_sent, _activeTransfer.totalBytes);
+				SetTransferProgress(false, source_filename, total_sent, _activeTransfer.totalBytes);
 
 			buf = NULL;
 		}
@@ -2082,25 +2109,15 @@ bool FtpTransport::SendFile()
 	}
 
 	if( result == TransferCompleted && total_sent > 0 )
-		SetTransferProgress(false, _activeTransfer.localFile, total_sent, _activeTransfer.totalBytes);
+		SetTransferProgress(false, source_filename, total_sent, _activeTransfer.totalBytes);
 
 	fclose(source_file);
 	CloseAndFreeDataSocket();
 
-	if( result == TransferCompleted )
-	{
-		uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
-		uint32_t rate = ComputeRate(total_sent, elapsed);
-
-		char sizebuf[32];
-		FormatSize(sizebuf, sizeof(sizebuf), total_sent);
-		
-		SetStatus('T', "%s sent in %lu.%1lu seconds (%lu.%1lu KBytes/sec)",
-			sizebuf, elapsed / 1000u, (elapsed % 1000u) / 100u, rate / 1024u, ((rate % 1024u) * 10u) / 1024u);
-	}
+	bool ok = FinalizeTransfer(TransferActionPut, result, source_filename);
 	ClearTransferContext();
 
-	return FinalizeTransfer(TransferActionPut, result, _activeTransfer.localFile);
+	return ok;
 }
 
 bool FtpTransport::TryParseUnixListLine(char *line, char *nameOut, int nameOutSize, bool &isDir, uint32_t &sizeOut, char *modifyOut, int modifyOutSize)

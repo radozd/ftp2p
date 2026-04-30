@@ -132,7 +132,9 @@ public:
 	void PrintStats(char *dst, int maxw, UiEntry *e);
 	
 	void SetFreeBytes(__int64 freeBytes) { _freeBytes = freeBytes; }
-	__int64 GetFreeBytes() const { return _freeBytes; }
+
+	void FormatSelectedInfo(char *dst, size_t dstSize);
+	void FormatListInfo(char *dst, size_t dstSize);
 
 	void UpdateEncoding();
 	
@@ -157,20 +159,18 @@ public:
 	void SetFallbackSelectionToCurrent();
 	void ClearPendingSelection();
 
-	bool NeedRefresh() const { return _needRefresh; }
-	void Invalidate() { _needRefresh = true; }
-	void Validate() { _needRefresh = false; }
-	bool Refresh(bool (*reloadFunc)());
+	void Refresh(bool (*reloadFunc)());
 	void ResetSelection();
 	
 	bool IsTruncated() const { return _truncated; }
+	bool IsNotRefreshed() const { return _refreshFailed; }
 	size_t Count() const { return _count; }
 	int Top() const { return _top; }
 
 private:
 	bool _dosNames;
 	bool _truncated;
-	bool _needRefresh;
+	bool _refreshFailed;
 	char _cwd[128];
 	OemCp _encoding;
 
@@ -199,7 +199,7 @@ UiList::UiList(size_t cap, bool dosNames)
 	_top = 0;
 	_dosNames = dosNames;
 	_truncated = false;
-	_needRefresh = true;
+	_refreshFailed = true;
 	_items = NULL;
 	_cwd[0] = '\0';
 	_encoding = g_encoding;
@@ -207,11 +207,11 @@ UiList::UiList(size_t cap, bool dosNames)
 	_fallbackSelectionIndex = -1;
 	_freeBytes = -1;
 
-	if( cap <= 0 )
-		return;
-
-	_capacity = cap;
-	_items = (UiEntry *)calloc(cap, sizeof(UiEntry));
+	if( cap > 0 )
+	{
+		_capacity = cap;
+		_items = (UiEntry *)calloc(cap, sizeof(UiEntry));
+	}
 }
 
 UiList::~UiList()
@@ -221,12 +221,6 @@ UiList::~UiList()
 	_items = NULL;
 	
 	Clear();
-	ClearPendingSelection();
-
-	_capacity = 0;
-	_dosNames = false;
-	_needRefresh = false;
-	_freeBytes = -1;
 }
 
 void UiList::ClearPendingSelection()
@@ -620,11 +614,8 @@ void UiList::SetFallbackSelectionToCurrent()
 	_fallbackSelectionIndex = _sel;
 }
 
-bool UiList::Refresh(bool (*reloadFunc)())
+void UiList::Refresh(bool (*reloadFunc)())
 {
-	if( reloadFunc == NULL )
-		return false;
-
 	char current[UI_NAME_MAX];
 	current[0] = '\0';
 
@@ -641,8 +632,9 @@ bool UiList::Refresh(bool (*reloadFunc)())
 	if( fallback < 0 )
 		fallback = _sel;
 
-	if( !reloadFunc() )
-		return false;
+	_refreshFailed = !reloadFunc();
+	if( _refreshFailed )
+		return;
 
 	Sort();
 
@@ -652,7 +644,7 @@ bool UiList::Refresh(bool (*reloadFunc)())
 		{
 			ClearPendingSelection();
 			_fallbackSelectionIndex = -1;
-			return true;
+			return;
 		}
 		ClearPendingSelection();
 	}
@@ -660,7 +652,7 @@ bool UiList::Refresh(bool (*reloadFunc)())
 	if( current[0] && SelectByName(current) )
 	{
 		_fallbackSelectionIndex = -1;
-		return true;
+		return;
 	}
 
 	if( _count == 0 )
@@ -668,7 +660,7 @@ bool UiList::Refresh(bool (*reloadFunc)())
 		_sel = 0;
 		_top = 0;
 		_fallbackSelectionIndex = -1;
-		return true;
+		return;
 	}
 
 	if( fallback < 0 )
@@ -677,7 +669,6 @@ bool UiList::Refresh(bool (*reloadFunc)())
 		fallback = _count - 1;
 	_sel = fallback;
 	_fallbackSelectionIndex = -1;
-	return true;
 }
 
 void UiList::UpdateEncoding()
@@ -704,4 +695,49 @@ void UiList::UpdateEncoding()
 		_encoding = OEM_CP850;
 	else
 		_encoding = OEM_ASCII;
+}
+
+void UiList::FormatSelectedInfo(char *dst, size_t dstSize)
+{
+	if( dst == NULL || dstSize == 0 )
+		return;
+
+	dst[0] = '\0';
+
+	int count = SelectedFileCount();
+	if( count <= 0 )
+		return;
+
+	char sizebuf[32];
+	FormatSize(sizebuf, sizeof(sizebuf), SelectedFileBytes());
+
+	SprintfTrunc(dst, dstSize, " %d / %s ", count, sizebuf);
+}
+
+void UiList::FormatListInfo(char *dst, size_t dstSize)
+{
+	if( dst == NULL || dstSize == 0 )
+		return;
+
+	dst[0] = '\0';
+
+	if( _truncated )
+	{
+		CopyTrunc(dst, dstSize, " truncated ");
+		return;
+	}
+
+	if( _refreshFailed )
+	{
+		CopyTrunc(dst, dstSize, " failed ");
+		return;
+	}
+
+	if( _freeBytes < 0 )
+		return;
+
+	char sizebuf[32];
+	FormatSize(sizebuf, sizeof(sizebuf), _freeBytes);
+
+	SprintfTrunc(dst, dstSize, " %s free ", sizebuf);
 }
