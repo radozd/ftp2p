@@ -45,10 +45,8 @@ limit may be lower if filenames are very long.
 
 ## Repository layout
 
-- `ftp2p/` - FTP2P application sources
-- `mtcp/` - required mTCP-based source tree used for build and runtime integration
-
-FTP2P is not a fully standalone project. It depends on code and tools from mTCP, and the repository is structured to keep the build reproducible.
+- `FTP2P/` - FTP2P application sources
+- `mTCP/` - mTCP source tree, included as a Git submodule
 
 ## Status
 
@@ -65,13 +63,15 @@ See BUILDING.md for build instructions.
 
 GitHub releases contain FTP2P binaries only.
 
-The corresponding source code for each release is available in this repository at the matching tag, including the FTP2P sources and the required mTCP-based source tree used to build the released binary.
+The corresponding source code for each release is available in this repository at the matching tag, including the FTP2P sources and the recorded `mTCP/` submodule commit used to build the released binary.
+
+To get a complete buildable source tree, clone with submodules initialized.
 
 ## Origin
 
 FTP2P is based in part on the original mTCP FTP client by Michael B. Brutman.
 
-This repository is not an official mTCP mirror.
+The mTCP/ directory is included as a Git submodule and points to the upstream mTCP repository.
 
 ## License
 

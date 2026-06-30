@@ -25,9 +25,9 @@
 
 # This code is big by nature, so throw in a few more options to improve performance.
 
-tcp_h_dir = ..\MTCP\TCPINC\
-tcp_c_dir = ..\MTCP\TCPLIB\
-common_h_dir = ..\MTCP\INCLUDE
+tcp_h_dir = ..\MTCP\SRC\TCPINC\
+tcp_c_dir = ..\MTCP\SRC\TCPLIB\
+common_h_dir = ..\MTCP\SRC\INCLUDE
 
 memory_model = -ml
 compile_options = -0 $(memory_model) -DCFG_H="ftp2p.cfg" -oh -ok -ot -s -oa -ei -zp2 -zpw -we -ob -ol+ -oi+ -wcd=880
@@ -45,7 +45,7 @@ clean : .symbolic
   @del *.map
 
 patch : .symbolic
-  ..\MTCP\utils\patch ftp2p.exe ftp2p.map $(memory_model)
+  ..\MTCP\SRC\utils\patch ftp2p.exe ftp2p.map $(memory_model)
 
 .asm : $(tcp_c_dir)
 

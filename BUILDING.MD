@@ -1,22 +1,26 @@
 # Building FTP2P
 
-FTP2P is intended to be built inside the source tree included in this repository.
+FTP2P is intended to be built with the `mTCP/` source tree initialized as a Git submodule.
 
 ## Requirements
 
 - MS-DOS compatible build environment
 - Open Watcom 1.9
-- the included `mtcp/` source tree
+- the mTCP/ source tree, initialized as a Git submodule
 - the usual mTCP build prerequisites expected by that tree
 
 ## Source tree
 
 Repository layout:
 
-- `ftp2p/` - FTP2P application sources
-- `mtcp/` - mTCP-based source tree required for build and runtime integration
+- `FTP2P/` - FTP2P application sources
+- `mTCP/` - mTCP source tree, included as a Git submodule
 
-FTP2P is not built as a completely standalone program. It uses code and surrounding infrastructure from the included mTCP tree.
+Clone with submodules:
+git clone --recurse-submodules https://github.com/radozd/ftp2p.git
+
+For an existing clone:
+git submodule update --init --recursive
 
 ## General build approach
 
@@ -25,7 +29,7 @@ Build FTP2P in the same environment and with the same compiler setup used for mT
 A typical workflow is:
 
 1. prepare Open Watcom 1.9 environment variables
-2. make sure the mTCP tree is in place
+2. make sure the mTCP submodule is initialized
 3. build FTP2P against that tree
 4. copy the resulting executable into your DOS runtime setup
 
@@ -47,4 +51,4 @@ The full corresponding source used to build those binaries remains available in 
 
 This repository is meant to preserve a buildable and understandable setup rather than a heavily minimized one.
 
-That is why the required mTCP-based tree is kept together with the FTP2P sources.
+That is why the required mTCP source tree is recorded as a Git submodule next to the FTP2P sources.

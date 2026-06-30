@@ -2,33 +2,32 @@
 
 FTP2P is based in part on the mTCP project by Michael B. Brutman.
 
-The original upstream source code was obtained from the official mTCP archive distribution published at:
-
-- <https://www.brutman.com/mTCP/>
+The original upstream source code is available from the official mTCP project.
 
 ## What this repository is
 
 This repository contains:
 
 - the FTP2P application sources
-- the mTCP-based source tree required to build FTP2P
-
-This is not an official mTCP repository and not a full upstream mirror maintained on behalf of the original author.
+- a reference to the mTCP source tree required to build FTP2P, recorded as a Git submodule
 
 ## Relationship to mTCP
 
 FTP2P reuses and adapts parts of the original mTCP FTP client code and is built in an environment that depends on the surrounding mTCP tree.
 
-For that reason, the repository keeps the required mTCP-based sources together with the FTP2P sources instead of trying to present FTP2P as a fully standalone program.
+For that reason, the repository records the required mTCP source tree as a Git submodule instead of trying to present FTP2P as a fully standalone program.
 
 ## Distribution model
 
-The intention is to distribute:
+The main mTCP package is not repackaged here as a separate release product. The source tree required to build the released FTP2P binaries is provided through the `mTCP/` Git submodule, pinned to the commit recorded by this repository.
 
-- source code for the full buildable FTP2P repository
-- release binaries for FTP2P only
+GitHub-generated "Source code" archives do not include the full contents of Git submodules. To get a complete buildable source tree, clone the repository with submodules initialized:
 
-The main mTCP package is not repackaged here as a separate release product. However, the source tree required to build the released FTP2P binaries is included in this repository.
+git clone --recurse-submodules https://github.com/radozd/ftp2p.git
+
+For an existing clone, use:
+
+git submodule update --init --recursive
 
 ## Upstream credit
 
@@ -38,10 +37,6 @@ Please refer to the official mTCP site for the original project, documentation, 
 
 ## Local modifications
 
-This repository may contain:
+FTP2P does not currently carry local changes to mTCP.
 
-- FTP2P-specific source files
-- local changes required for integration and build
-- fixes and adjustments related to DOS behavior and Open Watcom 1.9 compatibility
-
-Exact correspondence with any single upstream mTCP archive snapshot is not guaranteed unless explicitly stated in a tag or release note.
+Exact correspondence with upstream mTCP is defined by the Git submodule commit recorded in this repository.
