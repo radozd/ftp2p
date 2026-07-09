@@ -72,9 +72,9 @@ public:
 
 	void PutChAt(int x, int y, int ch);
 	void PutChAtAttr(int x, int y, int ch, uint8_t attr);
-	void WritePadAt(int x, int y, const char *s, int w, uint8_t attr=UI_ATTR_NORMAL);
-	void WriteFillAt(int x, int y, int count, int ch);
+	void PutCharsAt(int x, int y, int ch, int count);
 	void WriteAt(int x, int y, const char *s, uint8_t attr=UI_ATTR_NORMAL);
+	void WritePadAt(int x, int y, const char *s, int w, uint8_t attr=UI_ATTR_NORMAL);
 
 private:
 	uint8_t far *_screen;
@@ -252,9 +252,8 @@ void UiScreen::PutChAtAttr(int x, int y, int ch, uint8_t attr)
 	if( x < 0 || y < 0 || x >= _screenCols || y >= _screenRows )
 		return;
 	
-	uint16_t off = (uint16_t)((y * _screenCols + x) * 2);
-	_screen[off] = (uint8_t)ch;
-	_screen[off + 1] = attr;
+	uint16_t far *p = (uint16_t far *)(_screen + ((uint16_t)y * _screenCols + x) * 2);
+	*p = ((uint16_t)attr << 8) | (uint8_t)ch;
 }
 
 void UiScreen::PutChAt(int x, int y, int ch)
@@ -262,29 +261,7 @@ void UiScreen::PutChAt(int x, int y, int ch)
 	PutChAtAttr(x, y, ch, UI_ATTR_NORMAL);
 }
 
-void UiScreen::WritePadAt(int x, int y, const char *s, int w, uint8_t attr)
-{
-	if( w <= 0 )
-		return;
-
-	int i = 0;
-	if( s != NULL )
-	{
-		while( i < w && s[i] != '\0' )
-		{
-			PutChAtAttr(x + i, y, s[i], attr);
-			i++;
-		}
-	}
-
-	while( i < w )
-	{
-		PutChAtAttr(x + i, y, ' ', attr);
-		i++;
-	}
-}
-
-void UiScreen::WriteFillAt(int x, int y, int count, int ch)
+void UiScreen::PutCharsAt(int x, int y, int ch, int count)
 {
 	for( int i = 0; i < count; i++ )
 		PutChAt(x + i, y, ch);
@@ -297,4 +274,57 @@ void UiScreen::WriteAt(int x, int y, const char *s, uint8_t attr)
 
 	for( int i = 0; s[i] != '\0'; i++ )
 		PutChAtAttr(x + i, y, s[i], attr);
+}
+
+void UiScreen::WritePadAt(int x, int y, const char *s, int w, uint8_t attr)
+{
+	if( !_screen || w <= 0 )
+		return;
+	if( y < 0 || y >= _screenRows )
+		return;
+
+	if( x < 0 )
+	{
+		int skip = -x;
+		if( skip >= w )
+			return;
+
+		if( s != NULL )
+		{
+			while( skip > 0 && *s != '\0' )
+			{
+				s++;
+				skip--;
+			}
+		}
+
+		w += x;
+		x = 0;
+	}
+
+	if( x >= _screenCols )
+		return;
+
+	if( x + w > _screenCols )
+		w = _screenCols - x;
+
+	uint16_t far *p = (uint16_t far *)(_screen + ((uint16_t)y * _screenCols + x) * 2);
+	uint16_t attr16 = (uint16_t)attr << 8;
+
+	int i = 0;
+	if( s != NULL )
+	{
+		while( i < w && s[i] != '\0' )
+		{
+			*p++ = attr16 | (uint8_t)s[i];
+			i++;
+		}
+	}
+
+	uint16_t space = attr16 | ' ';
+	while( i < w )
+	{
+		*p++ = space;
+		i++;
+	}
 }

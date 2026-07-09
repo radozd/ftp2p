@@ -48,6 +48,14 @@
 
 #define UI_PANEL_MIN_WIDTH 20
 
+#define UI_REDRAW_NONE        0x0000
+#define UI_REDRAW_LEFT_PANEL  0x0001
+#define UI_REDRAW_RIGHT_PANEL 0x0002
+#define UI_REDRAW_PANELS      (UI_REDRAW_LEFT_PANEL | UI_REDRAW_RIGHT_PANEL)
+#define UI_REDRAW_STATUS      0x0004
+#define UI_REDRAW_FOOTER      0x0008
+#define UI_REDRAW_ALL         (UI_REDRAW_PANELS | UI_REDRAW_STATUS | UI_REDRAW_FOOTER)
+
 enum
 {
 	CH_UL    = 218, // ┌
@@ -79,11 +87,14 @@ private:
 	bool _remoteActive;
 	bool _panelsRTL;
 	int _panelMid;
-	bool _needRedraw;
+	int _needRedraw;
 	char _lastStatus[160];
 	char _copyPolicy[5];
 	
-	void Redraw();
+	void Redraw(int flags);
+	void RequestRedraw(int flags) { _needRedraw |= flags; }
+	int PanelRedrawFlag(bool remote) const;
+	int ActivePanelRedrawFlag() const { return PanelRedrawFlag(IsRemoteActive()); }
 
 	bool IsRemoteActive() const { return _remoteActive; }
 	UiList *GetActiveList() const;
@@ -130,7 +141,7 @@ UiApp::UiApp()
 	_remoteActive = true;
 	_panelsRTL = false;
 	_panelMid = 40;
-	_needRedraw = true;
+	_needRedraw = UI_REDRAW_ALL;
 	_lastStatus[0] = '\0';
 	strcpy(_copyPolicy, "ASK ");
 }
@@ -229,17 +240,18 @@ const char *UiApp::Loop()
 
 	while( true )
 	{
-		if( _needRedraw )
+		if( _needRedraw != UI_REDRAW_NONE )
 		{
+			int flags = _needRedraw;
 			FlushKeys();
-			Redraw();
-			_needRedraw = false;
+			Redraw(flags);
+			_needRedraw = UI_REDRAW_NONE;
 		}
 
 		if( g_remoteList.IsNotRefreshed() && RefreshPanel(true) )
 		{
 			SetStatus('C', "");
-			_needRedraw = true;
+			RequestRedraw(PanelRedrawFlag(true));
 		}
 		
 		uint16_t key = ReadKey();
@@ -256,17 +268,15 @@ const char *UiApp::Loop()
 				_panelsRTL = !_panelsRTL;
 			else
 				_remoteActive = !_remoteActive;
-			_needRedraw = true;
+			RequestRedraw(UI_REDRAW_PANELS);
 		}
 		else if( ascii == 8 )
 		{
 			EnterUp();
-			_needRedraw = true;
 		}
 		else if( key == UI_KEY_ENTER || ascii == 13 )
 		{
 			EnterCurrentItem();
-			_needRedraw = true;
 		}
 		else if( key == UI_KEY_ESC || ascii == 27 )
 		{
@@ -277,7 +287,7 @@ const char *UiApp::Loop()
 		{
 			SwitchCopyPolicy();
 			SetStatusF('I', "Copy policy: %s", GetCopyPolicy());
-			_needRedraw = true;
+			RequestRedraw(UI_REDRAW_FOOTER);
 		}
 		else if( key == UI_KEY_F10 )
 		{
@@ -287,85 +297,100 @@ const char *UiApp::Loop()
 		}
 		else if( key == UI_KEY_UP )
 		{
-			_needRedraw = GetActiveList()->MoveSel(-1);
+			if( GetActiveList()->MoveSel(-1) )
+				RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( key == UI_KEY_DOWN )
 		{
-			_needRedraw = GetActiveList()->MoveSel(1);
+			if( GetActiveList()->MoveSel(1) )
+				RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( key == UI_KEY_PGUP || key == UI_KEY_LEFT )
 		{
 			if( shift && key == UI_KEY_LEFT )
-				_needRedraw = MovePanelSplit(-4);
+			{
+				if( MovePanelSplit(-4) )
+					RequestRedraw(UI_REDRAW_PANELS);
+			}
 			else
-				_needRedraw = GetActiveList()->MoveSel(-(g_screen.Rows() - 6));
+			{
+				if( GetActiveList()->MoveSel(-(g_screen.Rows() - 6)) )
+					RequestRedraw(ActivePanelRedrawFlag());
+			}
 		}
 		else if( key == UI_KEY_PGDN || key == UI_KEY_RIGHT )
 		{
 			if( shift && key == UI_KEY_RIGHT )
-				_needRedraw = MovePanelSplit(4);
+			{
+				if( MovePanelSplit(4) )
+					RequestRedraw(UI_REDRAW_PANELS);
+			}
 			else
-				_needRedraw = GetActiveList()->MoveSel(g_screen.Rows() - 6);
+			{
+				if( GetActiveList()->MoveSel(g_screen.Rows() - 6) )
+					RequestRedraw(ActivePanelRedrawFlag());
+			}
 		}
 		else if( key == UI_KEY_HOME )
 		{
-			_needRedraw = GetActiveList()->MoveSel(-GetActiveList()->Count());
+			if( GetActiveList()->MoveSel(-GetActiveList()->Count()) )
+				RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( key == UI_KEY_END )
 		{
-			_needRedraw = GetActiveList()->MoveSel(GetActiveList()->Count());
+			if( GetActiveList()->MoveSel(GetActiveList()->Count()) )
+				RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( key == UI_KEY_INS )
 		{
-			_needRedraw = GetActiveList()->ToggleCurrentSelection(true);
+			if( GetActiveList()->ToggleCurrentSelection(true) )
+				RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( ascii == ' ' )
 		{
-			_needRedraw = GetActiveList()->ToggleCurrentSelection(false);
+			if( GetActiveList()->ToggleCurrentSelection(false) )
+				RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( ('A' <= ascii && ascii <= 'Z') || ('a' <= ascii && ascii <= 'z') || ('0' <= ascii && ascii <= '9') )
 		{
-			_needRedraw = GetActiveList()->SelectByFirstChar(ascii);
+			if( GetActiveList()->SelectByFirstChar(ascii) )
+				RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( key == UI_KEY_GRAY_PLUS )
 		{
 			GetActiveList()->SelectAllFiles();
-			_needRedraw = true;
+			RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( key == UI_KEY_GRAY_MINUS )
 		{
 			GetActiveList()->ClearSelectionMarks();
-			_needRedraw = true;
+			RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( key == UI_KEY_GRAY_STAR )
 		{
 			GetActiveList()->InvertFileSelection();
-			_needRedraw = true;
+			RequestRedraw(ActivePanelRedrawFlag());
 		}
 		else if( key == UI_KEY_F3 )
 		{
 			QuickViewCurrentItem();
-			_needRedraw = true;
+			RequestRedraw(UI_REDRAW_ALL);
 		}
 		else if( key == UI_KEY_F5 )
 		{
 			CopyCurrentItem();
-			_needRedraw = true;
 		}
 		else if( key == UI_KEY_F6 )
 		{
 			RenameCurrentItem();
-			_needRedraw = true;
 		}
 		else if( key == UI_KEY_F7 )
 		{
 			MakeDirInCurrentPanel();
-			_needRedraw = true;
 		}
 		else if( key == UI_KEY_F8 )
 		{
 			DeleteCurrentItem();
-			_needRedraw = true;
 		}
 		//else if( key == UI_KEY_F1 ) // debug
 		//{
@@ -376,19 +401,30 @@ const char *UiApp::Loop()
 	}
 }
 
-void UiApp::Redraw()
+int UiApp::PanelRedrawFlag(bool remote) const
+{
+	return _panelsRTL != remote ? UI_REDRAW_LEFT_PANEL : UI_REDRAW_RIGHT_PANEL;
+}
+
+void UiApp::Redraw(int flags)
 {
 	int panel_h = g_screen.Rows() - 2;
 	UiList *left   = _panelsRTL ? &g_localList  : &g_remoteList;
 	UiList *right  = _panelsRTL ? &g_remoteList : &g_localList;
 
-	DrawPanel(0, 0, _panelMid, panel_h, left, _panelsRTL != _remoteActive);
-	DrawPanel(_panelMid, 0, g_screen.Cols() - _panelMid, panel_h, right, _panelsRTL == _remoteActive);
-	PrintStatus();
+	if( flags & UI_REDRAW_LEFT_PANEL )
+		DrawPanel(0, 0, _panelMid, panel_h, left, _panelsRTL != _remoteActive);
+	if( flags & UI_REDRAW_RIGHT_PANEL )
+		DrawPanel(_panelMid, 0, g_screen.Cols() - _panelMid, panel_h, right, _panelsRTL == _remoteActive);
+	if( flags & UI_REDRAW_STATUS )
+		PrintStatus();
 
-	char footer[160];
-	SprintfTrunc(footer, sizeof(footer), "   F3 View   F5 Copy   F6 Rename   F7 MkDir   F8 Delete   F9 %s   F10 Quit", GetCopyPolicy());
-	g_screen.WritePadAt(0, g_screen.Rows() - 1, footer, g_screen.Cols(), UI_ATTR_FOOTER_TEXT);
+	if( flags & UI_REDRAW_FOOTER )
+	{
+		char footer[160];
+		SprintfTrunc(footer, sizeof(footer), "   F3 View   F5 Copy   F6 Rename   F7 MkDir   F8 Delete   F9 %s   F10 Quit", GetCopyPolicy());
+		g_screen.WritePadAt(0, g_screen.Rows() - 1, footer, g_screen.Cols(), UI_ATTR_FOOTER_TEXT);
+	}
 }
 
 bool UiApp::MovePanelSplit(int delta)
@@ -416,11 +452,12 @@ uint16_t UiApp::ReadKey()
 {
 	while( true )
 	{
+		if( biosIsKeyReady() )
+			return biosKeyRead();
+
 		g_ftp.PollControlSocket(50);
 		if( g_ftp.IsControlClosed() )
 			return UI_KEY_CONTROL_CLOSED;
-		if( biosIsKeyReady() )
-			return biosKeyRead();
 
 	#ifdef SLEEP_CALLS
 		SLEEP( );
@@ -901,7 +938,7 @@ bool UiApp::RefreshPanel(bool remote)
 	if( list->IsNotRefreshed() )
 		return false;
 
-	_needRedraw = true;
+	RequestRedraw(PanelRedrawFlag(remote));
 
 	if( list->IsTruncated() )
 		SetStatusF('W', "LIST truncated (%d): too many entries", list->Count());
@@ -997,7 +1034,7 @@ void UiApp::DeleteSelectedItems()
 
 	free(items);
 
-	if( ok_count == 0 )
+	if( ok_count > 0 )
 		RefreshPanel(IsRemoteActive());
 	
 	SetStatusF('I', "Deleted %d/%d files", ok_count, count);
@@ -1212,11 +1249,11 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *list, bool active)
 	list->PrintCwd(namebuf, w - 2);
 	size_t len = strlen(namebuf);
 	g_screen.WritePadAt(x + 2, y, namebuf, len, active ? UI_ATTR_SELECTED : UI_ATTR_NORMAL);
-	g_screen.WriteFillAt(x + 2 + len, y, w - len - 3, CH_H);
+	g_screen.PutCharsAt(x + 2 + len, y, CH_H, w - len - 3);
 	g_screen.PutChAt(x + w - 1, y, CH_UR);
 
 	g_screen.PutChAt(x, y + h - 3, CH_LT);
-	g_screen.WriteFillAt(x + 1, y + h - 3, w - 2, CH_H);
+	g_screen.PutCharsAt(x + 1, y + h - 3, CH_H, w - 2);
 	g_screen.PutChAt(x + w - 1, y + h - 3, CH_RT);
 	g_screen.PutChAt(x, y + h - 1, CH_LL);
 	g_screen.PutChAt(x + w - 1, y + h - 1, CH_LR);
