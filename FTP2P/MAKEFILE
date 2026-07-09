@@ -59,4 +59,4 @@ patch : .symbolic
 
 
 ftp2p.exe: $(tcpobjs) $(objs)
-  *wlink system dos debug all option map option eliminate option stack=4096 name $@ file *.obj
+  *wlink system dos option map option eliminate option stack=4096 name $@ file *.obj
