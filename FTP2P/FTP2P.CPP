@@ -268,7 +268,7 @@ void SetStatusCB(char type, const char *s)
 }
 
 /* ------------------------------------------------------------------------- */
-#define APP_VERSION "v3.6"
+#define APP_VERSION "v3.7"
 
 int main(int argc, char *argv[])
 {
@@ -294,10 +294,10 @@ int main(int argc, char *argv[])
 		printf("\n");
 		printf("Keys: Tab active panel, Shift+Tab swap panels, Enter open, Backspace up\n");
 		printf("      Left/Right/PgUp/PgDn move by page, Up/Down/Home/End move\n");
-		printf("      Shift+Left/Right resize panels, Esc abort, F10 quit\n");
+		printf("      Shift+Left/Right resize panels, letter/digit quick search\n");
 		printf("      Ins/Space mark, Gray +/-/* select\n");
-		printf("      F5 copy, F6 rename, F7 mkdir, F8 delete\n");
-		printf("      F9 overwrite policy: ASK/SKIP/OVRW\n");
+		printf("      F3 view, F5 copy, F6 rename, F7 mkdir, F8 delete\n");
+		printf("      F9 overwrite policy: ASK/SKIP/OVRW, Esc abort, F10 quit\n");
 		return 1;
 	}
 
