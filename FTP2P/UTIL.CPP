@@ -295,23 +295,19 @@ void FormatDuration(char *dst, size_t dstSize, uint32_t elapsedMs)
 		SprintfTrunc(dst, dstSize, "%lu:%02lu", m, s);
 }
 
-static uint32_t ComputeRate(uint32_t bytes, uint32_t elapsedMs)
+static uint32_t ComputeRate(__int64 bytes, uint32_t elapsedMs)
 {
-	uint32_t rate;
+	if( bytes <= 0 )
+		return 0;
 
 	if( elapsedMs == 0 )
 		elapsedMs = 55;
 
-	if( bytes < 2000000ul )
-		rate = (bytes * 1000) / elapsedMs;
-	else if( bytes < 20000000ul )
-		rate = (bytes * 100) / (elapsedMs / 10);
-	else if( bytes < 200000000ul )
-		rate = (bytes * 10) / (elapsedMs / 100);
-	else
-		rate = bytes / (elapsedMs / 1000);
+	__int64 rate = (bytes * 1000) / elapsedMs;
+	if( rate > 0xFFFFFFFFul )
+		return 0xFFFFFFFFul;
 
-	return rate;
+	return (uint32_t)rate;
 }
 
 static void ProbeFreeMem(char *buf, size_t bufSize)

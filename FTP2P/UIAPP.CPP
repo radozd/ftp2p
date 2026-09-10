@@ -765,7 +765,7 @@ void UiApp::QuickViewCurrentItem()
 		CopyTrunc(src, sizeof(src), e->name);
 	}
 
-	FileFormatter fmt(src, g_screen.Cols(), g_screen.Rows());
+	FileFormatter fmt(src, g_screen.Cols(), g_screen.Rows() - 1);
 	bool ok = fmt.PreprocessFile(html);
 	if( cleanup )
 		remove(src);
@@ -804,11 +804,13 @@ void UiApp::DoGet()
 		return;
 
 	clockTicks_t start = TIMER_GET_CURRENT();
-	if( g_ftp.DoGetAndWait(e->name, name, e->size) )
+	bool ok = g_ftp.DoGetAndWait(e->name, name, e->size);
+
+	RefreshPanel(false);
+
+	if( ok )
 	{
 		uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
-
-		RefreshPanel(false);
 		SetTransferSummary(1, 1, e->size, elapsed);
 	}
 }
@@ -863,6 +865,7 @@ void UiApp::CopySelectedItems()
 	int count = list->AllSelected(items, selected);
 	int ok_count = 0;
 	__int64 ok_bytes = 0;
+	bool get_attempted = false;
 	clockTicks_t start = TIMER_GET_CURRENT();
 
 	for( int i = 0; i < count; i++ )
@@ -877,7 +880,10 @@ void UiApp::CopySelectedItems()
 		{
 			char name[LOCALFILE_MAX_LEN];
 			if( MakeDosName(name, e->name) && ConfirmOverwrite(false, name) )
+			{
+				get_attempted = true;
 				ok = g_ftp.DoGetAndWait(e->name, name, e->size);
+			}
 		}
 		else
 		{
@@ -898,8 +904,11 @@ void UiApp::CopySelectedItems()
 
 	free(items);
 
-	if( ok_count > 0 )
-		RefreshPanel(!IsRemoteActive());
+	if( get_attempted )
+		RefreshPanel(false);
+
+	if( !IsRemoteActive() && ok_count > 0 )
+		RefreshPanel(true);
 
 	SetTransferSummary(ok_count, count, ok_bytes, elapsed);
 }
@@ -1141,7 +1150,7 @@ void UiApp::RenameCurrentItem()
 
 	char old_name[UI_NAME_MAX];
 	if( IsRemoteActive() )
-		list->PrintName(old_name, sizeof(old_name), e);
+		list->PrintEditableName(old_name, sizeof(old_name), e);
 	else
 		CopyTrunc(old_name, sizeof(old_name), e->name);
 
@@ -1155,6 +1164,9 @@ void UiApp::RenameCurrentItem()
 
 	if( IsRemoteActive() )
 	{
+		if( strcmp(new_name, old_name) == 0 )
+			return;
+
 		if( !MakeRemoteName(remote_new_name, sizeof(remote_new_name), new_name) )
 		{
 			SetStatusF('E', "Invalid remote name");

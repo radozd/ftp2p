@@ -129,6 +129,7 @@ public:
 
 	void PrintCwd(char *dst, int maxw);
 	void PrintName(char *dst, int maxw, UiEntry *e);
+	void PrintEditableName(char *dst, int maxw, UiEntry *e);
 	void PrintStats(char *dst, int maxw, UiEntry *e);
 	
 	void SetFreeBytes(__int64 freeBytes) { _freeBytes = freeBytes; }
@@ -348,6 +349,29 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 		else
 			StrToLower(dst, _encoding);
 	}
+}
+
+void UiList::PrintEditableName(char *dst, int maxw, UiEntry *e)
+{
+	if( dst == NULL || maxw <= 0 )
+		return;
+
+	dst[0] = '\0';
+	if( !e || e->kind == 'p' )
+		return;
+
+	const char *name = e->name;
+	char tmp[160];
+	if( !_dosNames && !g_noUtf8Arg )
+	{
+		if( g_simpleUtf8 || g_encoding != _encoding )
+			Utf8ToDosNameCharset(tmp, sizeof(tmp), name);
+		else
+			Utf8ToOem(tmp, sizeof(tmp), name, _encoding);
+		name = tmp;
+	}
+
+	CopyTrunc(dst, (size_t)maxw, name);
 }
 
 void UiList::PrintStats(char *dst, int maxw, UiEntry *e)
