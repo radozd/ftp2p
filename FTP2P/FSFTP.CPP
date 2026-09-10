@@ -54,6 +54,7 @@ enum ClientState_t
 	ListSentAfterPasv,
 
 	RetrSentPasv,
+	RetrSentRest,
 	RetrSentAfterPasv,
 
 	StorSentPasv,
@@ -91,8 +92,8 @@ typedef struct
 {
 	char serverFile[SERVERFILE_MAX_LEN];
 	char localFile[LOCALFILE_MAX_LEN];
-	char _padding;
 	uint32_t totalBytes;
+	uint32_t restartAt;
 } FtpTransferContext;
 
 typedef struct
@@ -140,7 +141,7 @@ public:
 	bool MakeDir(const char *path);
 	bool RenameItem(const char *fromPath, const char *toPath);
 
-	bool DoGetAndWait(const char *serverFile, const char *localFile, uint32_t totalBytes);
+	bool DoGetAndWait(const char *serverFile, const char *localFile, uint32_t totalBytes, uint32_t restartAt = 0);
 	bool DoPutAndWait(const char *localFile, const char *serverFile, uint32_t totalBytes);
 
 private:
@@ -224,6 +225,7 @@ private:
 	void SendUserCommand(const char *username);
 	void SendPassCommand(const char *password);
 	bool SendStorCommand(ClientState_t nextState);
+	bool SendRestCommand(ClientState_t nextState);
 	bool SendRetrCommand(ClientState_t nextState);
 	bool SendListCommand(ClientState_t nextState);
 
@@ -231,7 +233,7 @@ private:
 	void StartRetrieve();
 	void StartStore();
 	void StartTransfer(bool get);
-	void PrepareTransferContext(const char *serverFile, const char *localFile, uint32_t totalBytes);
+	void PrepareTransferContext(const char *serverFile, const char *localFile, uint32_t totalBytes, uint32_t restartAt = 0);
 	void ClearTransferContext();
 	uint16_t AllocNextEphemeralPort();
 
@@ -727,9 +729,15 @@ bool FtpTransport::RenameItem(const char *fromPath, const char *toPath)
 	return reply.code < 400u;
 }
 
-bool FtpTransport::DoGetAndWait(const char *serverFile, const char *localFile, uint32_t totalBytes)
+bool FtpTransport::DoGetAndWait(const char *serverFile, const char *localFile, uint32_t totalBytes, uint32_t restartAt)
 {
-	PrepareTransferContext(serverFile, localFile, totalBytes);
+	if( restartAt > 0 && (totalBytes == 0 || restartAt >= totalBytes) )
+	{
+		SetLocalError(501, "Invalid restart offset for GET");
+		return false;
+	}
+
+	PrepareTransferContext(serverFile, localFile, totalBytes, restartAt);
 	bool rc = BeginScenarioAndWait(_timeouts.command, &FtpTransport::StartRetrieve);
 	if( !rc )
 		ClearTransferContext();
@@ -738,7 +746,7 @@ bool FtpTransport::DoGetAndWait(const char *serverFile, const char *localFile, u
 
 bool FtpTransport::DoPutAndWait(const char *localFile, const char *serverFile, uint32_t totalBytes)
 {
-	PrepareTransferContext(serverFile, localFile, totalBytes);
+	PrepareTransferContext(serverFile, localFile, totalBytes, 0);
 	bool rc = BeginScenarioAndWait(_timeouts.command, &FtpTransport::StartStore);
 	if( !rc )
 		ClearTransferContext();
@@ -1232,6 +1240,13 @@ bool FtpTransport::SendStorCommand(ClientState_t nextState)
 	return SendCommandWithState("STOR", filename, nextState);
 }
 
+bool FtpTransport::SendRestCommand(ClientState_t nextState)
+{
+	char offset[16];
+	SprintfTrunc(offset, sizeof(offset), "%lu", _activeTransfer.restartAt);
+	return SendCommandWithState("REST", offset, nextState);
+}
+
 bool FtpTransport::SendRetrCommand(ClientState_t nextState)
 {
 	return SendCommandWithState("RETR", _activeTransfer.serverFile, nextState);
@@ -1262,7 +1277,7 @@ void FtpTransport::StartTransfer(bool get)
 	SendPasvCommand(get ? RetrSentPasv : StorSentPasv);
 }
 
-void FtpTransport::PrepareTransferContext(const char *serverFile, const char *localFile, uint32_t totalBytes)
+void FtpTransport::PrepareTransferContext(const char *serverFile, const char *localFile, uint32_t totalBytes, uint32_t restartAt)
 {
 	if( serverFile != NULL )
 		CopyTrunc(_activeTransfer.serverFile, sizeof(_activeTransfer.serverFile), serverFile);
@@ -1275,6 +1290,7 @@ void FtpTransport::PrepareTransferContext(const char *serverFile, const char *lo
 		_activeTransfer.localFile[0] = '\0';
 
 	_activeTransfer.totalBytes = totalBytes;
+	_activeTransfer.restartAt = restartAt;
 }
 
 void FtpTransport::ClearTransferContext()
@@ -1282,6 +1298,7 @@ void FtpTransport::ClearTransferContext()
 	_activeTransfer.serverFile[0] = '\0';
 	_activeTransfer.localFile[0] = '\0';
 	_activeTransfer.totalBytes = 0;
+	_activeTransfer.restartAt = 0;
 }
 
 uint16_t FtpTransport::AllocNextEphemeralPort()
@@ -1370,7 +1387,10 @@ void FtpTransport::HandlePasvReply(ClientState_t replyState, char *pos)
 		SendListCommand(ListSentAfterPasv);
 		break;
 	case RetrSentPasv:
-		SendRetrCommand(RetrSentAfterPasv);
+		if( _activeTransfer.restartAt > 0 )
+			SendRestCommand(RetrSentRest);
+		else
+			SendRetrCommand(RetrSentAfterPasv);
 		break;
 	case StorSentPasv:
 		SendStorCommand(StorSentAfterPasv);
@@ -1432,6 +1452,16 @@ void FtpTransport::ProcessSocketInput()
 		_lastReplyCode = code;
 	}
 
+	if( reply_state == RetrSentRest && _lastReplyCode >= 200u &&
+		_lastReplyCode < 400u && _lastReplyCode != 350u )
+	{
+		_scenarioFailed = true;
+		SetStatus('E', "Server did not accept REST");
+		_clientState = CmdLine;
+		CloseDataSocketsOnly();
+		return;
+	}
+
 	char token[30];
 	char *pos = Utils::getNextToken(buf, token, 30);
 
@@ -1491,8 +1521,14 @@ void FtpTransport::ProcessSocketInput()
 		break;
 
 	case 332:
-	case 350:
 		_clientState = CmdLine;
+		break;
+
+	case 350:
+		if( reply_state == RetrSentRest )
+			SendRetrCommand(RetrSentAfterPasv);
+		else
+			_clientState = CmdLine;
 		break;
 
 	case 421:
@@ -1730,11 +1766,11 @@ static bool ShouldUpdateProgress(clockTicks_t &lastTick, uint32_t &lastBytes, ui
 bool FtpTransport::ReceiveFile()
 {
 	const char *target_filename = _activeTransfer.localFile;
-	uint32_t total_received = 0;
+	uint32_t total_received = _activeTransfer.restartAt;
 	uint16_t bytes_read = 0;
 	uint16_t bytes_to_read = _recvFileBufSize;
 	clockTicks_t last_tick = 0;
-	uint32_t last_bytes = 0;
+	uint32_t last_bytes = _activeTransfer.restartAt;
 	TransferResult_t result = TransferInProgress;
 
 	if( _dataSocket == NULL )
@@ -1745,13 +1781,27 @@ bool FtpTransport::ReceiveFile()
 	if( *target_filename == '\0' )
 		target_filename = _activeTransfer.serverFile;
 
-	FILE *target_file = fopen(target_filename, "wb");
+	FILE *target_file = fopen(target_filename, _activeTransfer.restartAt > 0 ? "r+b" : "wb");
 	if( target_file == NULL )
 	{
 		SetStatus('E', "Error opening file %s for writing", target_filename);
 		CloseAndFreeDataSocket();
 		ClearTransferContext();
 		return false;
+	}
+
+	if( _activeTransfer.restartAt > 0 )
+	{
+		if( fseek(target_file, 0L, SEEK_END) != 0 ||
+			(uint32_t)ftell(target_file) != _activeTransfer.restartAt ||
+			fseek(target_file, (long)_activeTransfer.restartAt, SEEK_SET) != 0 )
+		{
+			SetStatus('E', "Local file changed; cannot resume GET");
+			fclose(target_file);
+			CloseAndFreeDataSocket();
+			ClearTransferContext();
+			return false;
+		}
 	}
 
 	clockTicks_t start = TIMER_GET_CURRENT();
@@ -1844,7 +1894,7 @@ bool FtpTransport::ReceiveFile()
 	fclose(target_file);
 	CloseAndFreeDataSocket();
 
-	if( result != TransferCompleted )
+	if( result != TransferCompleted && _activeTransfer.restartAt == 0 )
 		remove(target_filename);
 
 	bool ok = FinalizeTransfer(TransferActionGet, result, target_filename);

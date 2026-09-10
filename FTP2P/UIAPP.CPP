@@ -101,6 +101,7 @@ private:
 
 	bool IsShiftPressed() const;
 	uint16_t ReadKey();
+	char WaitForChar(const char *allowedChars);
 	void FlushKeys();
 
 	bool MovePanelSplit(int delta);
@@ -114,9 +115,8 @@ private:
 	const char *GetCopyPolicy() const { return _copyPolicy; }
 
 	bool IsPolicy(const char *name) const;
-	bool ConfirmOverwrite(bool remote, const char *name);
-
-	bool PanelHasName(bool remote, const char *name) const;
+	UiEntry *FindPanelEntry(bool remote, const char *name);
+	int ResolveFileConflict(bool remote, const char *name, uint32_t sourceSize, uint32_t *restartAt);
 	bool IsViewable(const UiEntry *e, bool &html) const;
 	void ShowQuickView(const char *title, FileFormatter &fmt);
 	void QuickViewCurrentItem();
@@ -465,6 +465,25 @@ uint16_t UiApp::ReadKey()
 	}
 }
 
+char UiApp::WaitForChar(const char *allowedChars)
+{
+	if( allowedChars == NULL )
+		return 0;
+
+	while( true )
+	{
+		uint16_t key = ReadKey();
+		if( key == UI_KEY_CONTROL_CLOSED )
+			return 0;
+
+		char ch = KeyAscii(key);
+		if( ch == 27 )
+			return ch;
+		if( ch != 0 && strchr(allowedChars, ch) != NULL )
+			return ch;
+	}
+}
+
 void UiApp::FlushKeys()
 {
 	while( biosIsKeyReady() )
@@ -496,27 +515,10 @@ bool UiApp::AskYesNo(const char *fmt, ...)
 
 	SetStatusF('Q', "%s [Y/N]", tmp);
 
-	while( true )
-	{
-		uint16_t key = ReadKey();
-		if( key == UI_KEY_CONTROL_CLOSED )
-		{
-			SetStatusF('I', "");
-			return false;
-		}
+	char ch = WaitForChar("yYnN");
+	SetStatusF('I', "");
 
-		char ch = KeyAscii(key);
-		if( ch == 'y' || ch == 'Y' )
-		{
-			SetStatusF('I', "");
-			return true;
-		}
-		if( ch == 'n' || ch == 'N' || ch == 27 )
-		{
-			SetStatusF('I', "");
-			return false;
-		}
-	}
+	return ch == 'y' || ch == 'Y';
 }
 
 bool UiApp::AskString(char *buf, size_t bufSize, const char *title, const char *initialValue)
@@ -586,31 +588,67 @@ bool UiApp::IsPolicy(const char *name) const
 	return name != NULL && strcmp(_copyPolicy, name) == 0;
 }
 
-bool UiApp::ConfirmOverwrite(bool remote, const char *name)
+UiEntry *UiApp::FindPanelEntry(bool remote, const char *name)
 {
-	if( !PanelHasName(remote, name) )
-		return true;
+	if( name == NULL || name[0] == '\0' )
+		return NULL;
+
+	return remote ? g_remoteList.FindByName(name) : g_localList.FindByName(name);
+}
+
+enum
+{
+	FileConflictSkip = 0,
+	FileConflictOverwrite,
+	FileConflictResume
+};
+
+int UiApp::ResolveFileConflict(bool remote, const char *name, uint32_t sourceSize, uint32_t *restartAt)
+{
+	if( restartAt != NULL )
+		*restartAt = 0;
+
+	UiEntry *existing = FindPanelEntry(remote, name);
+	if( existing == NULL )
+		return FileConflictOverwrite;
 
 	if( IsPolicy("SKIP") )
 	{
 		SetStatusF('I', "Skipped");
-		return false;
+		return FileConflictSkip;
 	}
 
 	if( !IsPolicy("ASK ") )
-		return true;
+		return FileConflictOverwrite;
 
-	if( AskYesNo("Overwrite %s file '%s'?", remote ? "remote" : "local", name) )
-		return true;
+	bool can_resume = restartAt != NULL && existing->kind != 'd' && existing->size > 0 && existing->size < sourceSize;
+	if( !can_resume )
+	{
+		if( AskYesNo("Overwrite %s file '%s'?", remote ? "remote" : "local", name) )
+			return FileConflictOverwrite;
 
-	SetStatusF('I', "Skipped");
-	return false;
-}
+		SetStatusF('I', "Skipped");
+		return FileConflictSkip;
+	}
 
-bool UiApp::PanelHasName(bool remote, const char *name) const
-{
-	UiEntry *e = remote ? g_remoteList.FindByName(name) : g_localList.FindByName(name);
-	return e != NULL && e->kind != 'p';
+	SetStatusF('Q', "%s '%s' exists [O]verwrite/[R]esume/[S]kip",
+		remote ? "Remote" : "Local", name);
+
+	char ch = WaitForChar("oOrRsS");
+	if( ch == 'o' || ch == 'O' )
+	{
+		SetStatusF('I', "");
+		return FileConflictOverwrite;
+	}
+	if( ch == 'r' || ch == 'R' )
+	{
+		*restartAt = existing->size;
+		SetStatusF('I', "");
+		return FileConflictResume;
+	}
+
+	SetStatusF('I', ch == 0 ? "" : "Skipped");
+	return FileConflictSkip;
 }
 
 bool UiApp::IsViewable(const UiEntry *e, bool &html) const
@@ -800,18 +838,19 @@ void UiApp::DoGet()
 		return;
 	}
 
-	if( !ConfirmOverwrite(false, name) )
+	uint32_t restart_at = 0;
+	if( ResolveFileConflict(false, name, e->size, &restart_at) == FileConflictSkip )
 		return;
 
 	clockTicks_t start = TIMER_GET_CURRENT();
-	bool ok = g_ftp.DoGetAndWait(e->name, name, e->size);
+	bool ok = g_ftp.DoGetAndWait(e->name, name, e->size, restart_at);
 
 	RefreshPanel(false);
 
 	if( ok )
 	{
 		uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
-		SetTransferSummary(1, 1, e->size, elapsed);
+		SetTransferSummary(1, 1, e->size - restart_at, elapsed);
 	}
 }
 
@@ -831,7 +870,7 @@ void UiApp::DoPut()
 		return;
 	}
 
-	if( !ConfirmOverwrite(true, name) )
+	if( ResolveFileConflict(true, name, e->size, NULL) == FileConflictSkip )
 		return;
 
 
@@ -875,21 +914,30 @@ void UiApp::CopySelectedItems()
 
 		UiEntry *e = items[i];
 		bool ok = false;
+		uint32_t copied_bytes = e->size;
 
 		if( IsRemoteActive() )
 		{
 			char name[LOCALFILE_MAX_LEN];
-			if( MakeDosName(name, e->name) && ConfirmOverwrite(false, name) )
+			if( MakeDosName(name, e->name) )
 			{
-				get_attempted = true;
-				ok = g_ftp.DoGetAndWait(e->name, name, e->size);
+				uint32_t restart_at = 0;
+				if( ResolveFileConflict(false, name, e->size, &restart_at) != FileConflictSkip )
+				{
+					get_attempted = true;
+					ok = g_ftp.DoGetAndWait(e->name, name, e->size, restart_at);
+					copied_bytes = e->size - restart_at;
+				}
 			}
 		}
 		else
 		{
 			char name[UI_NAME_MAX * 3];
-			if( MakeRemoteName(name, sizeof(name), e->name) && ConfirmOverwrite(true, name) )
-				ok = g_ftp.DoPutAndWait(e->name, name, e->size);
+			if( MakeRemoteName(name, sizeof(name), e->name) )
+			{
+				if( ResolveFileConflict(true, name, e->size, NULL) != FileConflictSkip )
+					ok = g_ftp.DoPutAndWait(e->name, name, e->size);
+			}
 		}
 
 		if( ok )
@@ -897,7 +945,7 @@ void UiApp::CopySelectedItems()
 			if( e->kind == 'F' )
 				e->kind = 'f';
 			ok_count++;
-			ok_bytes += e->size;
+			ok_bytes += copied_bytes;
 		}
 	}
 	uint32_t elapsed = Timer_diff(start, TIMER_GET_CURRENT()) * TIMER_TICK_LEN;
@@ -1201,9 +1249,6 @@ void UiApp::RenameCurrentItem()
 
 void UiApp::DrawPanel(int x, int y, int w, int h, UiList *list, bool active)
 {
-	if( list == NULL || w < UI_PANEL_MIN_WIDTH || h < 4 )
-		return;
-
 	char namebuf[UI_NAME_MAX];
 
 	int rows = h - 4;
@@ -1238,8 +1283,6 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *list, bool active)
 		int thumb_size = (rows * rows) / list->Count();
 		if( thumb_size < 1 )
 			thumb_size = 1;
-		if( thumb_size > rows )
-			thumb_size = rows;
 		int thumb_pos = (list->Top() * (rows - thumb_size)) / (list->Count() - rows);
 		for( int i = 0; i < rows; i++ )
 		{

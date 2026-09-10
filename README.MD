@@ -8,40 +8,46 @@ It is developed as a separate utility on top of an mTCP-based source tree. The r
 
 ## Background
 
-Historically there was a common joke that every beginner programmer
-eventually writes a file manager. As a result there are countless
-two-panel file managers for DOS.
+Historically there was a common joke that every beginner programmer eventually writes a file manager. As a result there are countless two-panel file managers for DOS.
 
-However, in more than 25 years no comparable two-panel FTP client
-for real MS-DOS has appeared. FTP2P attempts to fill that gap by
+However, in more than 25 years no comparable two-panel FTP client for real MS-DOS has appeared. FTP2P attempts to fill that gap by
 providing a simple full-screen dual-pane FTP client for DOS systems.
+
+FTP2P is deliberately narrow in scope. It is an FTP client, and intends to remain one.
+
+It will not grow into a general-purpose file manager, network suite, shell replacement, archive browser, editor, media viewer, or other multi-purpose cadaver assembled from unrelated features.
 
 FTP2P is developed primarily for nostalgic and hobbyist purposes.
 
 ## Features
 
 - dual-pane fullscreen DOS interface
-- remote FTP and local DOS panels
+- local DOS filesystem and remote FTP panels
 - directory navigation on both sides
-- file copy in both directions
-- rename, delete, and create-directory operations
+- file transfers in both directions
 - switchable overwrite policy
+- interrupted transfer resume
+- rename, delete, and create-directory operations
 - internal viewer
-- UTF-8 filename handling with DOS-compatible local name generation
+- passive FTP mode
+- UTF-8 remote filename handling with DOS-compatible local name generation
+
+## Requirements
+
+- IBM PC compatible system running MS-DOS
+- TCP/IP network interface supported by mTCP
+- mTCP-compatible packet driver
 
 ## Limitations
 
 FTP2P intentionally follows classic DOS filesystem constraints.
 Long filename (LFN) support is not planned.
 
-Recursive directory copy is not implemented because it would require
-reliable long filename handling when mapping remote paths to the
-local DOS filesystem.
+Recursive directory copy is not implemented because it would require reliable long filename handling when mapping remote paths to the local DOS filesystem.
 
 Supported DOS code pages are currently limited to 437, 850, 852 and 866.
 
-Each panel can display up to 3000 directory entries. The effective
-limit may be lower if filenames are very long.
+Each panel can display up to 3000 directory entries. The effective limit may be lower if filenames are very long.
 
 ## Repository layout
 
@@ -51,7 +57,6 @@ limit may be lower if filenames are very long.
 ## Status
 
 The client is fully usable and largely feature-complete.
-Support for resuming interrupted downloads is planned.
 
 ## Build
 
