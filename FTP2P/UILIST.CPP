@@ -707,7 +707,7 @@ void UiList::UpdateEncoding()
 	for( size_t i = 0; i < _count; i++ )
 	{
 		UiEntry *e = &_items[i];
-		if( e != NULL && e->kind != 'p' )
+		if( e->kind != 'p' )
 			CountOemChars(e->name, cp850, cp852, cp866);
 	}
 

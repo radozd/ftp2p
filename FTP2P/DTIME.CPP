@@ -565,7 +565,7 @@ bool DateTimeCodec::Decode(char *dst, size_t dstSize, uint32_t dt) const
 		return false;
 	}
 
-	if( pid < 0 || pid >= _ctx.PatternCount() )
+	if( pid >= _ctx.PatternCount() )
 		return false;
 
 	uint8_t values[MAX_FIELDS];
@@ -686,14 +686,14 @@ size_t DateTimeCodec::Tokenize(Item *items, size_t itemCapacity, const char *s)
 int DateTimeCodec::ClassifyNumber(const Item *items, size_t index)
 {
 	const Item &it = items[index];
-	int v = it.value;
+	uint16_t v = it.value;
 
 	if( it.len == 4 && 1980 <= v && v <= 2107 )
 		return FIELD_YEAR128;
 
 	if( index > 0 && items[index-1].IsColonLiteral() )
 	{
-		if( v < 0 || v > 59 )
+		if( v > 59 )
 			return 0;
 		return FIELD_NUM60;
 	}
