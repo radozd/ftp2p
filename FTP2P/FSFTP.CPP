@@ -59,6 +59,7 @@ enum ClientState_t
 	StorSentPasv,
 	StorSentAfterPasv,
 
+	TransferRecovering,
 	CmdSent,
 	Closing
 };
@@ -202,6 +203,7 @@ private:
 	void TouchScenarioActivity();
 	void AppendReplyLine(const char *line);
 	void SetLocalError(uint16_t code, const char *message);
+	void BeginTransferRecovery(uint16_t code, const char *message);
 	void FinalizeReply(FtpReply *replyOut);
 	bool WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t mask1);
 
@@ -795,6 +797,23 @@ void FtpTransport::SetLocalError(uint16_t code, const char *message)
 	SetStatus('E', message);
 }
 
+void FtpTransport::BeginTransferRecovery(uint16_t code, const char *message)
+{
+	char line[SERVER_RESP_MAX_LEN];
+
+	_scenarioFailed = true;
+	_lastReplyCode = code;
+	SprintfTrunc(line, sizeof(line), "FTP error %u (%s)", code, message);
+	CopyTrunc(_lastReplyLine, sizeof(_lastReplyLine), line);
+	CopyTrunc(_replyText, sizeof(_replyText), line);
+
+	_clientState = TransferRecovering;
+	g_ctrlBreakDetected = false;
+	TouchScenarioActivity();
+
+	SetStatus('E', message);
+}
+
 void FtpTransport::FinalizeReply(FtpReply *replyOut)
 {
 	if( replyOut == NULL )
@@ -832,11 +851,27 @@ bool FtpTransport::WaitForStateSet(uint32_t timeoutMs, uint32_t mask0, uint32_t 
 
 		if( Timer_diff(_lastScenarioActivity, TIMER_GET_CURRENT()) * TIMER_TICK_LEN > timeoutMs )
 		{
+			if( _clientState == TransferRecovering )
+			{
+				SetStatus('E', "FTP transfer recovery timed out");
+				_clientState = CmdLine;
+				return false;
+			}
+
 			SetStatus('W', "Timeout");
 			return false;
 		}
 		if( g_ctrlBreakDetected )
 		{
+			g_ctrlBreakDetected = false;
+
+			if( _clientState == TransferRecovering )
+			{
+				DestroySockets();
+				SetLocalError(421, "FTP session aborted");
+				return false;
+			}
+
 			SetStatus('W', "Abort");
 			return false;
 		}
@@ -1410,8 +1445,8 @@ void FtpTransport::ProcessSocketInput()
 	case 150:
 		if( !HandlePreliminaryReply(reply_state) )
 		{
-			SetLocalError(426, "Local data transfer failed");
 			CloseDataSocketsOnly();
+			BeginTransferRecovery(426, "Local data transfer failed");
 		}
 		break;
 
@@ -1465,7 +1500,14 @@ void FtpTransport::ProcessSocketInput()
 		break;
 
 	case 425:
+		_clientState = CmdLine;
+		break;
+
 	case 426:
+		if( reply_state != TransferRecovering )
+			_clientState = CmdLine;
+		break;
+
 	case 450:
 	case 451:
 	case 452:
@@ -1483,7 +1525,10 @@ void FtpTransport::ProcessSocketInput()
 		break;
 
 	default:
-		SetStatus('W', "Unrecognized response from server");
+		if( _lastReplyCode >= 400u && _lastReplyCode < 600u )
+			_clientState = CmdLine;
+		else
+			SetStatus('W', "Unrecognized response from server");
 		break;
 	}
 
