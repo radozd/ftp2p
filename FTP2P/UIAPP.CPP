@@ -115,7 +115,6 @@ private:
 	const char *GetCopyPolicy() const { return _copyPolicy; }
 
 	bool IsPolicy(const char *name) const;
-	UiEntry *FindPanelEntry(bool remote, const char *name);
 	int ResolveFileConflict(bool remote, const char *name, uint32_t sourceSize, uint32_t *restartAt);
 	bool IsViewable(const UiEntry *e, bool &html) const;
 	void ShowQuickView(const char *title, FileFormatter &fmt);
@@ -588,14 +587,6 @@ bool UiApp::IsPolicy(const char *name) const
 	return name != NULL && strcmp(_copyPolicy, name) == 0;
 }
 
-UiEntry *UiApp::FindPanelEntry(bool remote, const char *name)
-{
-	if( name == NULL || name[0] == '\0' )
-		return NULL;
-
-	return remote ? g_remoteList.FindByName(name) : g_localList.FindByName(name);
-}
-
 enum
 {
 	FileConflictSkip = 0,
@@ -605,10 +596,31 @@ enum
 
 int UiApp::ResolveFileConflict(bool remote, const char *name, uint32_t sourceSize, uint32_t *restartAt)
 {
+	if( name == NULL || name[0] == '\0' )
+		return FileConflictSkip;
+
 	if( restartAt != NULL )
 		*restartAt = 0;
 
-	UiEntry *existing = FindPanelEntry(remote, name);
+	if( IsPolicy("OVRW") )
+		return FileConflictOverwrite;
+
+	UiEntry local_entry;
+	UiEntry *existing = NULL;
+	if( remote )
+		existing = g_remoteList.FindByName(name);
+	else
+	{
+		int found = g_local.FindByName(name, local_entry);
+		if( found < 0 )
+		{
+			SetStatusF('E', "Cannot check local file '%s'", name);
+			return FileConflictSkip;
+		}
+		else if( found > 0 )
+			existing = &local_entry;
+	}
+
 	if( existing == NULL )
 		return FileConflictOverwrite;
 
@@ -617,9 +629,6 @@ int UiApp::ResolveFileConflict(bool remote, const char *name, uint32_t sourceSiz
 		SetStatusF('I', "Skipped");
 		return FileConflictSkip;
 	}
-
-	if( !IsPolicy("ASK ") )
-		return FileConflictOverwrite;
 
 	bool can_resume = restartAt != NULL && existing->kind != 'd' && existing->size > 0 && existing->size < sourceSize;
 	if( !can_resume )
@@ -631,8 +640,7 @@ int UiApp::ResolveFileConflict(bool remote, const char *name, uint32_t sourceSiz
 		return FileConflictSkip;
 	}
 
-	SetStatusF('Q', "%s '%s' exists [O]verwrite/[R]esume/[S]kip",
-		remote ? "Remote" : "Local", name);
+	SetStatusF('Q', "%s '%s' exists [O]verwrite/[R]esume/[S]kip", remote ? "Remote" : "Local", name);
 
 	char ch = WaitForChar("oOrRsS");
 	if( ch == 'o' || ch == 'O' )
@@ -958,6 +966,7 @@ void UiApp::CopySelectedItems()
 	if( !IsRemoteActive() && ok_count > 0 )
 		RefreshPanel(true);
 
+	RequestRedraw(ActivePanelRedrawFlag());
 	SetTransferSummary(ok_count, count, ok_bytes, elapsed);
 }
 

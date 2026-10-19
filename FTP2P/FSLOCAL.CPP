@@ -29,6 +29,8 @@ public:
 	bool ListCwd();
 	bool RefreshList();
 
+	int FindByName(const char *name, UiEntry &e);
+
 	bool ChangeToParentDir();
 	bool ChangeWorkingDir(const char *path);
 	bool RemoveDir(const char *path);
@@ -117,9 +119,9 @@ bool LocalFsTransport::ListCwd()
 		_localList->SetFreeBytes(-1);
 	}
 
-	struct find_t ff;
 	_localList->Add("..", 'p', 0, "");
 
+	struct find_t ff;
 	int rc = _dos_findfirst("*.*", _A_NORMAL | _A_RDONLY | _A_HIDDEN | _A_SYSTEM | _A_SUBDIR | _A_ARCH, &ff);
 	while( rc == 0 )
 	{
@@ -142,6 +144,25 @@ bool LocalFsTransport::ListCwd()
 bool LocalFsTransport::RefreshList()
 {
 	return ReadCwd() && ListCwd();
+}
+
+int LocalFsTransport::FindByName(const char *name, UiEntry &e)
+{
+	struct find_t ff;
+	int rc = _dos_findfirst(name, _A_NORMAL | _A_RDONLY | _A_HIDDEN | _A_SYSTEM | _A_SUBDIR | _A_ARCH, &ff);
+
+	if( rc == 2 || rc == 18 )
+		return 0;
+
+	if( rc != 0 )
+		return -1;
+
+	e.name = NULL;
+	e.kind = (ff.attrib & _A_SUBDIR) != 0 ? 'd' : 'f';
+	e.size = (uint32_t)ff.size;
+	e.modif = 0;
+
+	return 1;
 }
 
 bool LocalFsTransport::ChangeToParentDir()
