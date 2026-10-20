@@ -19,7 +19,8 @@
 */
 
 
-enum {
+enum
+{
 	EGA_BLACK          = 0x0,
 	EGA_BLUE           = 0x1,
 	EGA_GREEN          = 0x2,
