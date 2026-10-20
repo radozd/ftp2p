@@ -802,7 +802,10 @@ void UiApp::QuickViewCurrentItem()
 
 		g_ctrlBreakDetected = false;
 		if( !g_ftp.DoGetAndWait(e->name, src, e->size) )
+		{
+			remove(src);
 			return;
+		}
 
 		cleanup = true;
 	}

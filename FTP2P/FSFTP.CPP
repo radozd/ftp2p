@@ -1895,9 +1895,6 @@ bool FtpTransport::ReceiveFile()
 		result = TransferFileError;
 	CloseAndFreeDataSocket();
 
-	if( result != TransferCompleted && _activeTransfer.restartAt == 0 )
-		remove(target_filename);
-
 	bool ok = FinalizeTransfer(TransferActionGet, result, target_filename);
 	ClearTransferContext();
 
