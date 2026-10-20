@@ -20,13 +20,13 @@
 
 #include <dos.h>
 
-typedef enum
+enum OemCp
 {
 	OEM_ASCII,
 	OEM_CP850,
 	OEM_CP852,
 	OEM_CP866
-} OemCp;
+};
 
 OemCp g_encoding = OEM_CP866;
 
@@ -36,11 +36,11 @@ void InitDosCharset()
 	r.x.ax = 0x6601;
 	intdos(&r, &r);
 	switch( r.x.bx )
-	{	
+	{
 	case 852:
 		g_encoding = OEM_CP852;
 		break;
-	
+
 	case 850:
 		g_encoding = OEM_CP850;
 		break;
@@ -48,9 +48,9 @@ void InitDosCharset()
 	case 437:
 		g_encoding = OEM_ASCII;
 		break;
-	
+
 	default:
-		g_encoding = OEM_CP866;		
+		g_encoding = OEM_CP866;
 	}
 	printf("CP%d\n", r.x.bx);
 }
@@ -980,7 +980,7 @@ static bool MakeDosName(char *dst, const char *src)
 		Utf8ToDosNameCharset(tmp, sizeof(tmp), src);
 		name = tmp;
 	}
-	
+
 	const char *p;
 	for( p = name; *p; ++p )
 	{

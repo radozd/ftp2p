@@ -53,7 +53,7 @@ static void CopyDataTrunc(char *dst, size_t dstSize, const char *src, size_t src
 	if( dst == NULL || dstSize == 0 )
 		return;
 
-	dst[0] = '\0';	
+	dst[0] = '\0';
 	if( src == NULL )
 		return;
 
@@ -63,7 +63,7 @@ static void CopyDataTrunc(char *dst, size_t dstSize, const char *src, size_t src
 
 	if( copy_len > 0 )
 		memcpy(dst, src, copy_len);
-	
+
 	dst[copy_len] = '\0';
 }
 
@@ -213,9 +213,9 @@ static void GetLastPathComponent(char *nameBuf, size_t nameBufSize, const char *
 {
 	if( nameBuf == NULL || nameBufSize == 0 )
 		return;
-	
+
 	nameBuf[0] = '\0';
-	
+
 	if( path == NULL || path[0] == '\0' )
 		return;
 
@@ -269,7 +269,7 @@ void FormatSize(char *dst, size_t dstSize, __int64 bytes)
 		unsigned long whole = (unsigned long)(bytes / GB);
 		__int64 rem = bytes % GB;
 		unsigned long frac = (unsigned long)((rem * 1000 + (GB / 2)) / GB);
-		
+
 		if( frac >= 1000 )
 		{
 			whole++;

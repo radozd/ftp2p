@@ -90,7 +90,7 @@ private:
 	int _needRedraw;
 	char _lastStatus[160];
 	char _copyPolicy[5];
-	
+
 	void Redraw(int flags);
 	void RequestRedraw(int flags) { _needRedraw |= flags; }
 	int PanelRedrawFlag(bool remote) const;
@@ -155,7 +155,7 @@ bool UiApp::InitScreen()
 	g_screen.Capture();
 	g_screen.HideCursor();
 	g_screen.Clear();
-	
+
 	return true;
 }
 
@@ -252,7 +252,7 @@ const char *UiApp::Loop()
 			SetStatus('C', "");
 			RequestRedraw(PanelRedrawFlag(true));
 		}
-		
+
 		uint16_t key = ReadKey();
 
 		if( key == UI_KEY_CONTROL_CLOSED )
@@ -490,7 +490,7 @@ void UiApp::FlushKeys()
 }
 
 void UiApp::PrintStatus()
-{	
+{
 	uint8_t attr = UI_ATTR_NORMAL;
 	switch( _lastStatus[0] )
 	{
@@ -661,7 +661,7 @@ int UiApp::ResolveFileConflict(bool remote, const char *name, uint32_t sourceSiz
 
 bool UiApp::IsViewable(const UiEntry *e, bool &html) const
 {
-	if( e == NULL || e->name[0] == '\0' )
+	if( !e || !e->IsValidName() )
 		return false;
 	if( e->size == 0 || e->size > 65535ul )
 		return false;
@@ -784,7 +784,7 @@ void UiApp::QuickViewCurrentItem()
 	bool html;
 	if( !IsViewable(e, html) )
 	{
-		SetStatusF('W', "View not available: %s", e->name);
+		SetStatusF('W', "View not available for this file");
 		return;
 	}
 
@@ -837,10 +837,15 @@ void UiApp::DoGet()
 {
 	SetStatus('C', "");
 	g_ctrlBreakDetected = false;
-
 	UiEntry *e = g_remoteList.GetCurrent();
-	if( !e || e->kind == 'p' || e->kind == 'd' )
+	if( !e || e->kind == 'p' || e->kind == 'd')
 		return;
+
+	if( !e->IsValidName() )
+	{
+		SetStatusF('E', "Invalid name");
+		return;
+	}
 
 	char name[LOCALFILE_MAX_LEN];
 	if( !MakeDosName(name, e->name) )
@@ -924,9 +929,11 @@ void UiApp::CopySelectedItems()
 			break;
 
 		UiEntry *e = items[i];
+		if( !e || !e->IsValidName() )
+			continue;
+
 		bool ok = false;
 		uint32_t copied_bytes = e->size;
-
 		if( IsRemoteActive() )
 		{
 			char name[LOCALFILE_MAX_LEN];
@@ -1043,8 +1050,7 @@ void UiApp::EnterCurrentItem()
 		EnterUp();
 		return;
 	}
-
-	if( e->kind == 'd' )
+	if( e->kind == 'd' && e->IsValidName() )
 	{
 		SetStatus('C', "");
 
@@ -1090,8 +1096,10 @@ void UiApp::DeleteSelectedItems()
 	{
 		if( g_ctrlBreakDetected )
 			break;
-
 		UiEntry *e = items[i];
+		if( !e || !e->IsValidName() )
+			continue;
+		
 		bool ok = IsRemoteActive() ? g_ftp.DeleteFile(e->name) : g_local.DeleteFile(e->name);
 		if( ok )
 		{
@@ -1105,7 +1113,7 @@ void UiApp::DeleteSelectedItems()
 
 	if( ok_count > 0 )
 		RefreshPanel(IsRemoteActive());
-	
+
 	SetStatusF('I', "Deleted %d/%d files", ok_count, count);
 }
 
@@ -1124,6 +1132,12 @@ void UiApp::DeleteCurrentItem()
 	UiEntry *e = list->GetCurrent();
 	if( !e || e->kind == 'p' )
 		return;
+
+	if( !e->IsValidName() )
+	{
+		SetStatusF('E', "Invalid name");
+		return;
+	}
 
 	char namebuf[UI_NAME_MAX];
 	list->PrintName(namebuf, sizeof(namebuf), e);
@@ -1147,7 +1161,7 @@ void UiApp::DeleteCurrentItem()
 	}
 
 	list->SetFallbackSelectionToCurrent();
-	
+
 	RefreshPanel(IsRemoteActive());
 	SetStatusF('I', "Deleted: %s", namebuf);
 }
@@ -1188,7 +1202,7 @@ void UiApp::MakeDirInCurrentPanel()
 
 	UiList *list = GetActiveList();
 	list->SetPendingSelection(sel_name);
-	
+
 	RefreshPanel(IsRemoteActive());
 	SetStatusF('I', "MkDir: %s", name);
 }
@@ -1207,6 +1221,12 @@ void UiApp::RenameCurrentItem()
 	UiEntry *e = list->GetCurrent();
 	if( !e || e->kind == 'p' )
 		return;
+
+	if( !e->IsValidName() )
+	{
+		SetStatusF('E', "Invalid name");
+		return;
+	}
 
 	char old_name[UI_NAME_MAX];
 	if( IsRemoteActive() )
@@ -1254,7 +1274,7 @@ void UiApp::RenameCurrentItem()
 	}
 
 	list->SetPendingSelection(sel_name);
-	
+
 	RefreshPanel(IsRemoteActive());
 	SetStatusF('I', "Renamed: %s", new_name);
 }
@@ -1291,7 +1311,7 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *list, bool active)
 	}
 
 	if( rows > 0 && list->Count() > rows )
-	{	
+	{
 		int thumb_size = (rows * rows) / list->Count();
 		if( thumb_size < 1 )
 			thumb_size = 1;

@@ -106,13 +106,15 @@ private:
 };
 
 
-typedef struct
+struct UiEntry
 {
 	char *name;
 	uint32_t modif;
 	uint32_t size;
 	char kind;   /* 'p' parent, 'd' dir, 'f' file, 'F' selected file */
-} UiEntry;
+
+	bool IsValidName() const { return name != NULL && name[0] != '\0' && strlen(name) < UI_NAME_MAX - 1; }
+};
 
 class UiList
 {
@@ -131,7 +133,7 @@ public:
 	void PrintName(char *dst, int maxw, UiEntry *e);
 	void PrintEditableName(char *dst, int maxw, UiEntry *e);
 	void PrintStats(char *dst, int maxw, UiEntry *e);
-	
+
 	void SetFreeBytes(__int64 freeBytes) { _freeBytes = freeBytes; }
 
 	void FormatSelectedInfo(char *dst, size_t dstSize);
@@ -139,12 +141,12 @@ public:
 
 	void SetEncoding(OemCp encoding) { _encoding = encoding; }
 	void UpdateEncoding();
-	
+
 	UiEntry *Add(const char *name, char kind, uint32_t size, const char *modif);
 	UiEntry *GetCurrent();
 	UiEntry *GetFromTop(int idx);
 	UiEntry *FindByName(const char *name);
-	
+
 	bool SelectByName(const char *name);
 	bool SelectByFirstChar(int ch);
 	void EnsureVisible(int height);
@@ -163,7 +165,7 @@ public:
 
 	void Refresh(bool (*reloadFunc)());
 	void ResetSelection();
-	
+
 	bool IsTruncated() const { return _truncated; }
 	bool IsNotRefreshed() const { return _refreshFailed; }
 	size_t Count() const { return _count; }
@@ -179,12 +181,12 @@ private:
 	NamePool _namePool;
 	DateTimeCodec _dtcodec;
 
-	UiEntry *_items;	
+	UiEntry *_items;
 	size_t _count;
 	size_t _capacity;
 	int _top;
 	int _sel;
-	
+
 	char _pendingSelection[UI_NAME_MAX];
 	int _fallbackSelectionIndex;
 	__int64 _freeBytes;
@@ -221,7 +223,7 @@ UiList::~UiList()
 	if( _items )
 		free(_items);
 	_items = NULL;
-	
+
 	Clear();
 }
 
@@ -312,7 +314,7 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 {
 	if( dst == NULL || maxw <= 0 )
 		return;
-	
+
 	dst[0] = '\0';
 	if( !e )
 		return;
@@ -322,7 +324,7 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 		strcpy(dst, "[..]");
 		return;
 	}
-		
+
 	char *name = e->name;
 	char tmp[160];
 	if( !_dosNames && !g_noUtf8Arg )
@@ -342,7 +344,7 @@ void UiList::PrintName(char *dst, int maxw, UiEntry *e)
 	}
 	else
 		CropRight(dst, maxw, name);
-		
+
 	if( _dosNames )
 	{
 		if( e->kind == 'd' )
@@ -379,9 +381,9 @@ void UiList::PrintStats(char *dst, int maxw, UiEntry *e)
 {
 	if( dst == NULL || maxw <= 0 )
 		return;
-	
+
 	dst[0] = '\0';
-	if( e == NULL || e->kind == 'p' || e->kind == 'd' )
+	if( !e || e->kind == 'p' || e->kind == 'd' )
 		return;
 
 	char sizebuf[32];
@@ -535,7 +537,7 @@ bool UiList::MoveSel(int delta)
 bool UiList::ToggleCurrentSelection(bool moveAfter)
 {
 	UiEntry *e = GetCurrent();
-	if( e == NULL )
+	if( !e )
 		return false;
 
 	if( e->kind == 'f' )

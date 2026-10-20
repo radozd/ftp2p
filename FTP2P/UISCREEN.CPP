@@ -251,7 +251,7 @@ void UiScreen::PutChAtAttr(int x, int y, int ch, uint8_t attr)
 		return;
 	if( x < 0 || y < 0 || x >= _screenCols || y >= _screenRows )
 		return;
-	
+
 	uint16_t far *p = (uint16_t far *)(_screen + ((uint16_t)y * _screenCols + x) * 2);
 	*p = ((uint16_t)attr << 8) | (uint8_t)ch;
 }

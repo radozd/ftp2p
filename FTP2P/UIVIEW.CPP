@@ -369,7 +369,7 @@ long FileFormatter::GetLine(long pos, char *buf, size_t bufSize) const
 			fseek(_f, -1L, SEEK_CUR);
 
 	}
-	
+
 	pos = ftell(_f);
 	if( pos < 0 )
 		pos = 0;

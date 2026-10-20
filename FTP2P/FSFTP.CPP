@@ -82,34 +82,34 @@ enum TransferResult_t
 	TransferTimedOut
 };
 
-typedef struct
+struct DataBuf
 {
 	TcpBuffer b;
 	uint8_t data[1460];
-} DataBuf;
+};
 
-typedef struct
+struct FtpTransferContext
 {
 	char serverFile[SERVERFILE_MAX_LEN];
 	char localFile[LOCALFILE_MAX_LEN];
 	uint32_t totalBytes;
 	uint32_t restartAt;
-} FtpTransferContext;
+};
 
-typedef struct
+struct FtpReply
 {
 	uint16_t code;
 	bool multiline;
 	char _padding;
 	char lastLine[SERVER_RESP_MAX_LEN];
 	char text[FTP_REPLY_TEXT_MAX];
-} FtpReply;
+};
 
-typedef struct
+struct FtpTimeoutProfile
 {
 	uint32_t command;
 	uint32_t dataIdle;
-} FtpTimeoutProfile;
+};
 
 class FtpTransport
 {
@@ -127,7 +127,7 @@ public:
 
 	void PollControlSocket(uint32_t timeout);
 	bool IsControlClosed();
-	
+
 	bool SetBinaryType();
 
 	bool ReadCwd();
@@ -184,7 +184,7 @@ private:
 	uint32_t _connectTimeout;
 	FtpTimeoutProfile _timeouts;
 	clockTicks_t _lastScenarioActivity;
-	
+
 	bool _multilineResponse;
 	bool _stackStarted;
 	bool _scenarioFailed;
@@ -613,7 +613,7 @@ void FtpTransport::SetTransferProgress(bool get, const char *name, uint32_t byte
 		percent = bytes / (totalBytes / 100u);
 	else
 		percent = (bytes * 100u) / totalBytes;
-	
+
 	if( percent > 100u )
 		percent = 100u;
 
@@ -1015,7 +1015,7 @@ bool FtpTransport::QueryFeatures(uint32_t timeoutMs)
 	FtpReply reply;
 	if( !SendAndWaitRawEx("FEAT", NULL, &reply, timeoutMs) )
 		return false;
-	
+
 	printf("%s\n", reply.text);
 
 	return (reply.code == 211) || (reply.code == 500) || (reply.code == 502) || (reply.code == 530);

@@ -727,7 +727,7 @@ bool DateTimeCodec::Build(const char *s, DatePattern &p, uint8_t *values)
 
 			if( !p.AddField(FIELD_TEXT, 0, false) )
 				return false;
-			
+
 			values[p.FieldCount() - 1] = (uint8_t)text_id;
 		}
 		else if( it.type == ITEM_NUMBER )
