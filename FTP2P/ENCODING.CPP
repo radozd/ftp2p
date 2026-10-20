@@ -675,31 +675,55 @@ static bool IsUtf8Char(unsigned ch)
 	return false;
 }
 
-static bool Utf8Next(const char **s, unsigned *ch)
+static int DecodeUtf8Char(const unsigned char *p, size_t len, unsigned *ch)
 {
-	const unsigned char *p = (const unsigned char *)*s;
-
-	if( *p == '\0' )
-		return false;
+	if( len == 0 )
+		return 0;
 
 	if( p[0] < 0x80 )
 	{
 		*ch = p[0];
-		*s += 1;
-		return true;
+		return 1;
 	}
 
-	if( (p[0] & 0xE0) == 0xC0 && p[1] != '\0' && (p[1] & 0xC0) == 0x80 )
+	if( p[0] >= 0xC2 && p[0] <= 0xDF )
 	{
+		if( len < 2 || (p[1] & 0xC0) != 0x80 )
+			return false;
+
 		*ch = ((unsigned)(p[0] & 0x1F) << 6) | (unsigned)(p[1] & 0x3F);
-		*s += 2;
-		return true;
+		return 2;
 	}
 
-	if( (p[0] & 0xF0) == 0xE0 && p[1] != '\0' && p[2] != '\0' && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80 )
+	if( p[0] >= 0xE0 && p[0] <= 0xEF )
 	{
+		if( len < 3 || (p[1] & 0xC0) != 0x80 || (p[2] & 0xC0) != 0x80 )
+			return false;
+
+		if( (p[0] == 0xE0 && p[1] < 0xA0) || (p[0] == 0xED && p[1] >= 0xA0) )
+			return false;
+
 		*ch = ((unsigned)(p[0] & 0x0F) << 12) | ((unsigned)(p[1] & 0x3F) << 6) | (unsigned)(p[2] & 0x3F);
-		*s += 3;
+		return 3;
+	}
+
+	return 0;
+}
+
+static bool Utf8Next(const char **s, unsigned *ch)
+{
+	const unsigned char *p = (const unsigned char *)*s;
+	int len = 0;
+	while( len < 3 && p[len] != '\0' )
+		len++;
+
+	if( len == 0 )
+		return false;
+
+	int used = DecodeUtf8Char(p, len, ch);
+	if( used > 0 )
+	{
+		*s += used;
 		return true;
 	}
 

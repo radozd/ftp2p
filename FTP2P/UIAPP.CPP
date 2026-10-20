@@ -789,12 +789,7 @@ void UiApp::QuickViewCurrentItem()
 	}
 
 	char src[LOCALFILE_MAX_LEN];
-	char tmp[LOCALFILE_MAX_LEN];
 	bool cleanup = false;
-
-	CopyTrunc(tmp, sizeof(tmp), "ftp2p.tmp");
-	remove(tmp);
-
 	if( IsRemoteActive() )
 	{
 		CopyTrunc(src, sizeof(src), "ftp2p.$$$");
@@ -821,7 +816,6 @@ void UiApp::QuickViewCurrentItem()
 
 	if( !ok )
 	{
-		remove(tmp);
 		SetStatusF('E', "View failed: %s", e->name);
 		return;
 	}
@@ -829,8 +823,6 @@ void UiApp::QuickViewCurrentItem()
 	char namebuf[UI_NAME_MAX];
 	list->PrintName(namebuf, sizeof(namebuf), e);
 	ShowQuickView(namebuf, fmt);
-
-	remove(tmp);
 }
 
 void UiApp::DoGet()

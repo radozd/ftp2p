@@ -18,6 +18,8 @@
 	along with FTP2P. If not, see <https://www.gnu.org/licenses/>.
 */
 
+static const char *TMP_VIEW = "ftp2p.tmp";
+
 class FileFormatter
 {
 public:
@@ -37,7 +39,12 @@ public:
 	long GetSize() const { return _fsize; }
 
 private:
-	enum { TMP_NAME_SIZE = 16 };
+	enum
+	{
+		TEXT_UNKNOWN,
+		TEXT_UTF8,
+		TEXT_OEM
+	};
 
 	FILE *_f;
 	int _width;
@@ -48,14 +55,21 @@ private:
 	int _col;
 	bool _ready;
 	char _srcName[260];
-	char _tmpName[TMP_NAME_SIZE];
+
+	int _textEncoding;
+	int _utf8Len;
+	unsigned char _utf8Buf[3];
 
 	void CloseFile();
 	bool OpenPreparedFile();
 	long FindPrevLine(long pos) const;
 
 	bool PutRawCh(int ch);
+	bool PutSimpleCh(int ch);
+	bool PutUnicodeCh(unsigned ch);
+	bool FlushUtf8AsOem();
 	bool PutCh(int ch);
+	bool FlushText();
 
 	bool PreprocessTextStream(FILE *src);
 	int ReadCh(FILE *f);
@@ -74,24 +88,16 @@ FileFormatter::FileFormatter(const char *srcName, int width, int height)
 	_col = 0;
 	_ready = false;
 
-	_srcName[0] = '\0';
-	_tmpName[0] = '\0';
+	_textEncoding = TEXT_UNKNOWN;
+	_utf8Len = 0;
 
-	if( srcName != NULL )
-	{
-		strncpy(_srcName, srcName, sizeof(_srcName) - 1);
-		_srcName[sizeof(_srcName) - 1] = '\0';
-	}
-
-	strcpy(_tmpName, "ftp2p.tmp");
+	CopyTrunc(_srcName, sizeof(_srcName), srcName);
 }
 
 FileFormatter::~FileFormatter()
 {
 	CloseFile();
-
-	if( _tmpName[0] != '\0' )
-		remove(_tmpName);
+	remove(TMP_VIEW);
 }
 
 void FileFormatter::CloseFile()
@@ -111,7 +117,7 @@ bool FileFormatter::OpenPreparedFile()
 {
 	CloseFile();
 
-	_f = fopen(_tmpName, "rb");
+	_f = fopen(TMP_VIEW, "rb");
 	if( _f == NULL )
 		return false;
 
@@ -133,13 +139,13 @@ bool FileFormatter::PreprocessFile(bool html)
 		return false;
 
 	CloseFile();
-	remove(_tmpName);
+	remove(TMP_VIEW);
 
 	FILE *src = fopen(_srcName, "rb");
 	if( src == NULL )
 		return false;
 
-	FILE *dst = fopen(_tmpName, "wb");
+	FILE *dst = fopen(TMP_VIEW, "wb");
 	if( dst == NULL )
 	{
 		fclose(src);
@@ -149,6 +155,8 @@ bool FileFormatter::PreprocessFile(bool html)
 	_f = dst;
 	_nls = 0;
 	_col = 0;
+	_textEncoding = g_noUtf8Arg ? TEXT_OEM : TEXT_UNKNOWN;
+	_utf8Len = 0;
 
 	bool ok = !html ? PreprocessTextStream(src) : PreprocessHtmlStream(src);
 
@@ -158,7 +166,7 @@ bool FileFormatter::PreprocessFile(bool html)
 
 	if( !ok )
 	{
-		remove(_tmpName);
+		remove(TMP_VIEW);
 		return false;
 	}
 
@@ -279,6 +287,7 @@ long FileFormatter::End()
 		long prev = FindPrevLine(_pos);
 		if( prev >= _pos )
 			break;
+		
 		_pos = prev;
 		if( _pos <= 0 )
 		{
@@ -376,14 +385,6 @@ long FileFormatter::GetLine(long pos, char *buf, size_t bufSize) const
 	if( pos > _fsize )
 		pos = _fsize;
 
-	if( !g_noUtf8Arg )
-	{
-		if( g_simpleUtf8 )
-			Utf8ToDosNameCharset(buf, bufSize, buf);
-		else
-			Utf8ToOem(buf, bufSize, buf, g_encoding);
-	}
-
 	return pos;
 }
 
@@ -402,7 +403,7 @@ bool FileFormatter::PutRawCh(int ch)
 	return fputc(ch, _f) != EOF;
 }
 
-bool FileFormatter::PutCh(int ch)
+bool FileFormatter::PutSimpleCh(int ch)
 {
 	if( ch != '\n' && _width > 0 && _col >= _width )
 	{
@@ -421,6 +422,140 @@ bool FileFormatter::PutCh(int ch)
 		_col++;
 
 	return true;
+}
+
+bool FileFormatter::PutUnicodeCh(unsigned ch)
+{
+	if( ch == 0xFEFF )
+		return true;
+
+	if( g_simpleUtf8 )
+	{
+		char buf[4];
+		size_t pos = 0;
+		if( !AppendDosChar(buf, sizeof(buf), pos, ch) )
+			return false;
+
+		for( size_t i = 0; i < pos; i++ )
+		{
+			if( !PutSimpleCh((unsigned char)buf[i]) )
+				return false;
+		}
+		return true;
+	}
+
+	switch( g_encoding )
+	{
+	case OEM_CP850:
+		ch = UnicodeToCp850(ch);
+		break;
+
+	case OEM_CP852:
+		ch = UnicodeToCp852(ch);
+		break;
+
+	case OEM_CP866:
+		ch = UnicodeToCp866(ch);
+		break;
+
+	default:
+		break;
+	}
+
+	return PutSimpleCh((unsigned char)ch);
+}
+
+bool FileFormatter::FlushUtf8AsOem()
+{
+	int n = _utf8Len;
+	_utf8Len = 0;
+
+	for( int i = 0; i < n; i++ )
+	{
+		if( !PutSimpleCh(_utf8Buf[i]) )
+			return false;
+	}
+	return true;
+}
+
+bool FileFormatter::PutCh(int ch)
+{
+	if( _textEncoding == TEXT_OEM )
+		return PutSimpleCh(ch);
+
+	if( _utf8Len == 0 )
+	{
+		if( ch < 0x80 )
+			return PutSimpleCh(ch);
+
+		if( (ch >= 0xC2 && ch <= 0xDF) || (ch >= 0xE0 && ch <= 0xEF) )
+		{
+			_utf8Buf[0] = (unsigned char)ch;
+			_utf8Len = 1;
+			return true;
+		}
+
+		if( _textEncoding == TEXT_UNKNOWN )
+		{
+			_textEncoding = TEXT_OEM;
+			return PutSimpleCh(ch);
+		}
+
+		return PutSimpleCh('_');
+	}
+
+	if( (ch & 0xC0) != 0x80 )
+	{
+		if( _textEncoding == TEXT_UNKNOWN )
+		{
+			_textEncoding = TEXT_OEM;
+			if( !FlushUtf8AsOem() )
+				return false;
+			return PutSimpleCh(ch);
+		}
+
+		_utf8Len = 0;
+		if( !PutSimpleCh('_') )
+			return false;
+
+		return PutCh(ch);
+	}
+
+	_utf8Buf[_utf8Len++] = (unsigned char)ch;
+	int n = _utf8Buf[0] < 0xE0 ? 2 : 3;
+	if( _utf8Len < n )
+		return true;
+
+	unsigned unicode;
+	int used = DecodeUtf8Char(_utf8Buf, _utf8Len, &unicode);
+
+	if( _textEncoding == TEXT_UNKNOWN && (used == 0 || !IsUtf8Char(unicode)) )
+	{
+		_textEncoding = TEXT_OEM;
+		return FlushUtf8AsOem();
+	}
+
+	_utf8Len = 0;
+	if( used == 0 )
+		return PutSimpleCh('_');
+
+	_textEncoding = TEXT_UTF8;
+	return PutUnicodeCh(unicode);
+}
+
+bool FileFormatter::FlushText()
+{
+	if( _utf8Len == 0 )
+		return true;
+
+	if( _textEncoding == TEXT_UNKNOWN )
+	{
+		_textEncoding = TEXT_OEM;
+		return FlushUtf8AsOem();
+	}
+
+	_utf8Len = 0;
+	return PutSimpleCh('_');
 }
 
 int FileFormatter::ReadCh(FILE *f)
@@ -477,7 +612,7 @@ bool FileFormatter::PreprocessTextStream(FILE *src)
 			return false;
 	}
 
-	return !ferror(src);
+	return !ferror(src) && FlushText();
 }
 
 bool FileFormatter::TagNameEq(const char *tag, const char *name)
@@ -509,6 +644,9 @@ bool FileFormatter::PreprocessHtmlStream(FILE *f)
 
 		if( ch == '<' )
 		{
+			if( !FlushText() )
+				return false;
+
 			char tag[16];
 			int n = 0;
 			bool closing = false;
@@ -584,6 +722,9 @@ bool FileFormatter::PreprocessHtmlStream(FILE *f)
 
 		if( ch == '&' )
 		{
+			if( !FlushText() )
+				return false;
+
 			char ent[8];
 			int n = 0;
 
@@ -635,5 +776,5 @@ bool FileFormatter::PreprocessHtmlStream(FILE *f)
 		have_text = true;
 	}
 
-	return !ferror(f);
+	return !ferror(f) && FlushText();
 }
