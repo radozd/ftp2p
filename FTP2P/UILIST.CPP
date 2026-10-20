@@ -137,6 +137,7 @@ public:
 	void FormatSelectedInfo(char *dst, size_t dstSize);
 	void FormatListInfo(char *dst, size_t dstSize);
 
+	void SetEncoding(OemCp encoding) { _encoding = encoding; }
 	void UpdateEncoding();
 	
 	UiEntry *Add(const char *name, char kind, uint32_t size, const char *modif);

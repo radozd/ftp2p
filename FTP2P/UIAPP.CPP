@@ -1292,7 +1292,7 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *list, bool active)
 		int thumb_size = (rows * rows) / list->Count();
 		if( thumb_size < 1 )
 			thumb_size = 1;
-		int thumb_pos = (list->Top() * (rows - thumb_size)) / (list->Count() - rows);
+		int thumb_pos = (int)(((long)list->Top() * (rows - thumb_size)) / (list->Count() - rows));
 		for( int i = 0; i < rows; i++ )
 		{
 			g_screen.PutChAt(x, y + 1 + i, CH_V);

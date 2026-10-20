@@ -303,6 +303,7 @@ int main(int argc, char *argv[])
 
 	CtrlBreakInstaller cbreak;
 	InitDosCharset();
+	g_localList.SetEncoding(g_encoding);
 
 	if( !g_local.Init(SetStatusCB, &g_localList) )
 		return 1;

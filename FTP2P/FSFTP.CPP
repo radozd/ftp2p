@@ -1891,7 +1891,8 @@ bool FtpTransport::ReceiveFile()
 	if( result == TransferCompleted && total_received > 0 )
 		SetTransferProgress(true, target_filename, total_received, _activeTransfer.totalBytes);
 
-	fclose(target_file);
+	if( fclose(target_file) != 0 && result == TransferCompleted )
+		result = TransferFileError;
 	CloseAndFreeDataSocket();
 
 	if( result != TransferCompleted && _activeTransfer.restartAt == 0 )
