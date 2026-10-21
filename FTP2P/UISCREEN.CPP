@@ -48,11 +48,38 @@ enum
 #define UI_ATTR_MARKED_CURRENT    UI_ATTR(EGA_YELLOW, EGA_LIGHT_GRAY)
 #define UI_ATTR_FOOTER_TEXT       UI_ATTR(EGA_BLACK, EGA_LIGHT_GRAY)
 
+#define UI_ATTR_NORMAL_TXT        UI_ATTR(EGA_GREEN, EGA_BLACK)
+#define UI_ATTR_NORMAL_ZIP        UI_ATTR(EGA_CYAN, EGA_BLACK)
+
 #define UI_ATTR_STATUS_OK         UI_ATTR(EGA_LIGHT_GRAY, EGA_BLACK)
 #define UI_ATTR_STATUS_WARNING    UI_ATTR(EGA_YELLOW, EGA_BLACK)
 #define UI_ATTR_STATUS_ERROR      UI_ATTR(EGA_LIGHT_RED, EGA_BLACK)
 #define UI_ATTR_STATUS_QUESTION   UI_ATTR(EGA_LIGHT_GREEN, EGA_BLACK)
-#define UI_ATTR_STATUS_TRANSFER   UI_ATTR(EGA_CYAN, EGA_BLACK)
+#define UI_ATTR_STATUS_TRANSFER   UI_ATTR(EGA_LIGHT_CYAN, EGA_BLACK)
+
+int GetFileColor(const char *name)
+{
+	static const char *names[] = { "00_INDEX", "FILES", "INDEX", "00README", NULL };
+	static const char *txt[] = { ".bbs", ".txt", ".ion", ".diz", ".nfo", ".html", ".htm", NULL };
+	static const char *zip[] = { ".zip", ".arj", ".lha", ".arc", ".7z", ".rar", ".lzh", ".ha", ".gz", ".tgz", ".tar", NULL };
+
+	for( int i = 0; names[i] != NULL; i++ )
+		if( stricmp(name, names[i]) == 0 )
+			return UI_ATTR_NORMAL_TXT;
+
+	const char *ext = strrchr(name, '.');
+	if( ext != NULL && ext[1] != '\0' )
+	{
+		for( int i = 0; txt[i] != NULL; i++ )
+			if( stricmp(ext, txt[i]) == 0 )
+				return UI_ATTR_NORMAL_TXT;
+
+		for( int i = 0; zip[i] != NULL; i++ )
+			if( stricmp(ext, zip[i]) == 0 )
+				return UI_ATTR_NORMAL_ZIP;
+	}
+	return UI_ATTR_NORMAL;
+}
 
 class UiScreen
 {

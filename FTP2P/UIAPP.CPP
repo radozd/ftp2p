@@ -665,32 +665,13 @@ bool UiApp::IsViewable(const UiEntry *e, bool &html) const
 		return false;
 	if( e->size == 0 || e->size > 65535ul )
 		return false;
-
-	html = false;
-
-	if( stricmp(e->name, "00_INDEX") == 0 || stricmp(e->name, "FILES") == 0 ||
-		stricmp(e->name, "INDEX") == 0 || stricmp(e->name, "00README") == 0 )
-	{
-		return true;
-	}
-
-	const char *ext = strrchr(e->name, '.');
-	if( ext == NULL || ext[1] == '\0' )
+	if( GetFileColor(e->name) != UI_ATTR_NORMAL_TXT )
 		return false;
 
-	if( stricmp(ext, ".bbs") == 0 || stricmp(ext, ".txt") == 0 ||
-		stricmp(ext, ".ion") == 0 || stricmp(ext, ".diz") == 0 ||
-		stricmp(ext, ".nfo") == 0 )
-	{
-		return true;
-	}
+	const char *ext = strrchr(e->name, '.');
+	html = ext != NULL && ext[1] != '\0' && (stricmp(ext, ".html") == 0 || stricmp(ext, ".htm") == 0);
 
-	if( stricmp(ext, ".html") == 0 || stricmp(ext, ".htm") == 0 )
-	{
-		html = true;
-		return true;
-	}
-	return false;
+	return true;
 }
 
 void UiApp::ShowQuickView(const char *title, FileFormatter &fmt)
@@ -1287,17 +1268,24 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *list, bool active)
 		namebuf[0] = '\0';
 		list->PrintName(namebuf, maxName, e);
 
-		bool is_current = active && e == cur;
-		bool is_marked = e != NULL && e->kind == 'F';
-		uint8_t attr;
-		if( is_current && is_marked )
-			attr = UI_ATTR_MARKED_CURRENT;
-		else if( is_current )
-			attr = UI_ATTR_SELECTED;
-		else if( is_marked )
-			attr = UI_ATTR_MARKED;
-		else
-			attr = e != NULL && e->kind == 'd' ? UI_ATTR_DIRECTORY : UI_ATTR_NORMAL;
+		uint8_t attr = UI_ATTR_NORMAL;
+		if( e != NULL )
+		{
+			bool is_current = active && e == cur;
+			bool is_marked = e->kind == 'F';
+			bool is_dir = e->kind == 'd';
+
+			if( is_current && is_marked )
+				attr = UI_ATTR_MARKED_CURRENT;
+			else if( is_current )
+				attr = UI_ATTR_SELECTED;
+			else if( is_marked )
+				attr = UI_ATTR_MARKED;
+			else if( is_dir )
+				attr = UI_ATTR_DIRECTORY;
+			else
+				attr = GetFileColor(e->name);
+		}
 
 		g_screen.WritePadAt(x + 1, y + 1 + row, namebuf, w - 2, attr);
 	}
