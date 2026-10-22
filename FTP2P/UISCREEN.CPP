@@ -46,6 +46,7 @@ enum
 #define UI_ATTR_DIRECTORY         UI_ATTR(EGA_WHITE, EGA_BLACK)
 #define UI_ATTR_MARKED            UI_ATTR(EGA_YELLOW, EGA_BLACK)
 #define UI_ATTR_MARKED_CURRENT    UI_ATTR(EGA_YELLOW, EGA_LIGHT_GRAY)
+#define UI_ATTR_MARKED_CURRENT_BW UI_ATTR(EGA_DARK_GRAY, EGA_LIGHT_GRAY)
 #define UI_ATTR_FOOTER_TEXT       UI_ATTR(EGA_BLACK, EGA_LIGHT_GRAY)
 
 #define UI_ATTR_NORMAL_TXT        UI_ATTR(EGA_GREEN, EGA_BLACK)
@@ -97,6 +98,7 @@ public:
 	bool IsReady() const { return _screen != NULL; }
 	uint16_t Rows() const { return _screenRows; }
 	uint16_t Cols() const { return _screenCols; }
+	bool IsBW() const { return _bw; }
 
 	void PutChAt(int x, int y, int ch);
 	void PutChAtAttr(int x, int y, int ch, uint8_t attr);
@@ -108,6 +110,7 @@ private:
 	uint8_t far *_screen;
 	uint16_t _screenRows;
 	uint16_t _screenCols;
+	bool _bw;
 
 	uint16_t _savedScreenBytes;
 	uint16_t _savedScreenCapacity;
@@ -126,6 +129,7 @@ UiScreen::UiScreen()
 	_screen = NULL;
 	_screenRows = 25;
 	_screenCols = 80;
+	_bw = false;
 
 	_savedScreenBytes = 0;
 	_savedScreenCapacity = 0;
@@ -152,7 +156,8 @@ UiScreen::~UiScreen()
 bool UiScreen::Init()
 {
 	uint8_t mode = *((uint8_t far *)MK_FP(0x40, 0x49));
-	if( mode == 7 )
+	_bw = mode == 7;
+	if( _bw )
 		_screen = (uint8_t far *)MK_FP(0xb000, 0);
 	else
 		_screen = (uint8_t far *)MK_FP(0xb800, 0);

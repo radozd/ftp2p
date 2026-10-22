@@ -1276,7 +1276,7 @@ void UiApp::DrawPanel(int x, int y, int w, int h, UiList *list, bool active)
 			bool is_dir = e->kind == 'd';
 
 			if( is_current && is_marked )
-				attr = UI_ATTR_MARKED_CURRENT;
+				attr = !g_screen.IsBW() ? UI_ATTR_MARKED_CURRENT : UI_ATTR_MARKED_CURRENT_BW;
 			else if( is_current )
 				attr = UI_ATTR_SELECTED;
 			else if( is_marked )
