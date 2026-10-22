@@ -31,6 +31,7 @@ FTP2P is developed primarily for nostalgic and hobbyist purposes.
 - internal viewer
 - passive FTP mode
 - UTF-8 remote filename handling with DOS-compatible local name generation
+- highlighting for archives and text files
 
 ## Requirements
 
